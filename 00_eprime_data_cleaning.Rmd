@@ -1,0 +1,248 @@
+---
+title: "Data cleaning for eprime learning task"
+author: "Meriah DeJoseph"
+date: "Spring 2022"
+output: html_document 
+---
+
+## About
+This script merges txt edat files from the eprime learning task and generates three main output files:  
+- `df_lines`: Dataframe with responses to the line (original) version 
+- `df_pics`: Dataframe with responses to the real-world picture (adapted) version
+- `df_bothV`: Dataframe with merged responses to both versions
+
+## Libraries
+```{r libraries, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(e1071)
+library(readr)
+library(Hmisc)
+library(corrplot)
+library(sjstats)
+library(ppcor)
+library(arsenal)
+library(rprime)
+
+```
+
+## Load raw individual data and merge 
+```{r load_data, warning=FALSE, include=TRUE, cache=TRUE, message=FALSE}
+
+#Set wd
+setwd("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Eprime merging and cleaning/Eprime_csv") 
+
+#read in eprime files, which are already converted to csv
+df_merged_raw <- list.files(path="~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Eprime merging and cleaning/Eprime_csv") %>% 
+  lapply(read_csv) %>% 
+  bind_rows
+
+as.data.frame(df_merged_raw)
+
+#save out the raw merged file
+write.csv(df_merged_raw,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Eprime merging and cleaning/df_eprime_merged_raw.csv")
+
+```
+
+## Pull out neccessary variables for analyses & mutate vars
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#First change the vars with brackets
+df_merged_raw <- rename(df_merged_raw,
+                       ProcedureBlock="Procedure[Block]",
+                       RunningBlock="Running[Block]")
+
+#pull out all vars I think I'll need for analyses
+df_bothV <- df_merged_raw %>% 
+  dplyr::select(Subject, Order, 
+                Block, Ecological, LineDrawing, 
+         OrderList, OrderList.Cycle, OrderList.Sample, 
+         Picture1, Picture2, Picture3, Picture4, Picture5, Picture6,
+         Picture7, Picture8, Picture9, Picture10, Picture11, Picture12,
+        ProcedureBlock, RunningBlock, Trial, 
+         Acq100Blk, Acq100Blk.Cycle, Acq100Blk.Sample, Condition,
+         CorKeyAns, CorrectAnswer, Message,
+         ReversalBlk, ReversalBlk.Cycle, ReversalBlk.Sample,
+         Stim, trial_type, Active, Version, Total, Stm.RESP) 
+
+df_bothV  <- df_bothV %>% 
+ filter(ProcedureBlock != 'TutorialProc' & ProcedureBlock != 'PracticeProc' & ProcedureBlock != 'BreakProc') #filter to remove tutorial, practice, break rows
+
+```
+
+## Clean up block vars for analyses
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+#Make a combined verison that breaks up acq and reversal across runs
+df_bothV <- df_bothV %>% 
+  mutate(blockC = coalesce(Acq100Blk.Cycle, ReversalBlk.Cycle))
+
+#This is prob going to be a non-concise way of doing this, but to be extra careful that my blocks align with how I set up physio triggers, I'm doing this the long way by recoding each block chunked by acq and rev in each run
+
+df_bothV <- df_bothV %>% 
+  mutate(blockOrder = case_when(
+             between(Acq100Blk.Sample, 1,12) ~ 1,
+             between(Acq100Blk.Sample, 3,24) ~ 2,
+             between(Acq100Blk.Sample, 25,36) ~ 3,
+            between(Acq100Blk.Sample, 37,48) ~ 4, 
+            between(Acq100Blk.Sample, 49,60) ~ 5, 
+            between(Acq100Blk.Sample, 61,72) ~ 6 ,
+            between(Acq100Blk.Sample, 73,84) ~ 7, 
+            between(Acq100Blk.Sample, 85,96) ~ 8, 
+            between(ReversalBlk.Sample, 1,12) ~ 9, 
+            between(ReversalBlk.Sample, 13,24) ~ 10,
+            between(ReversalBlk.Sample, 25,36) ~ 11,
+            between(ReversalBlk.Sample, 37,48) ~ 12, 
+            between(ReversalBlk.Sample, 49,60) ~ 13, 
+            between(ReversalBlk.Sample, 61,72) ~ 14, 
+            between(ReversalBlk.Sample, 73,84) ~ 15, 
+            between(ReversalBlk.Sample, 85,96) ~ 16,
+            between(Acq100Blk.Sample, 97,108) ~ 17,
+            between(Acq100Blk.Sample, 109,120) ~ 18, 
+            between(Acq100Blk.Sample, 121,132) ~ 19,
+            between(Acq100Blk.Sample, 133,144) ~ 20, 
+            between(Acq100Blk.Sample, 145,156) ~ 21, 
+            between(Acq100Blk.Sample, 157,168) ~ 22, 
+            between(Acq100Blk.Sample, 169,180) ~ 23, 
+            between(Acq100Blk.Sample, 181,192) ~ 24, 
+            between(ReversalBlk.Sample, 97,108) ~ 25, 
+            between(ReversalBlk.Sample, 109,120) ~ 26, 
+            between(ReversalBlk.Sample, 121,132) ~ 27, 
+            between(ReversalBlk.Sample, 133,144) ~ 28, 
+            between(ReversalBlk.Sample, 145,156) ~ 29, 
+            between(ReversalBlk.Sample, 157,168) ~ 30, 
+            between(ReversalBlk.Sample, 169,180) ~ 31,
+            between(ReversalBlk.Sample, 181,192) ~ 32,
+            between(Acq100Blk.Sample, 193,204) ~ 33,
+            between(Acq100Blk.Sample, 205,216) ~ 34,
+            between(Acq100Blk.Sample, 217,228) ~ 35,
+            between(Acq100Blk.Sample, 229,240) ~ 36,
+            between(Acq100Blk.Sample, 241,252) ~ 37,
+            between(Acq100Blk.Sample, 253,264) ~ 38, 
+            between(Acq100Blk.Sample, 265,276) ~ 39,
+            between(Acq100Blk.Sample, 277,288) ~ 40, 
+            between(ReversalBlk.Sample, 193,204) ~ 41,
+            between(ReversalBlk.Sample, 205,216) ~42, 
+            between(ReversalBlk.Sample, 217,228) ~ 43,
+            between(ReversalBlk.Sample, 229,240) ~ 44,
+            between(ReversalBlk.Sample, 241,252) ~ 45,
+            between(ReversalBlk.Sample, 253,264) ~ 46, 
+            between(ReversalBlk.Sample, 265,276) ~ 47,
+            between(ReversalBlk.Sample, 277,288) ~ 48,
+            between(Acq100Blk.Sample, 289,300) ~ 49, 
+            between(Acq100Blk.Sample, 301,312) ~ 50, 
+            between(Acq100Blk.Sample, 313,324) ~ 51, 
+            between(Acq100Blk.Sample, 325,336) ~ 52, 
+            between(Acq100Blk.Sample, 337,348) ~ 53, 
+            between(Acq100Blk.Sample, 349,360) ~ 54, 
+            between(Acq100Blk.Sample, 361,372) ~ 55, 
+            between(Acq100Blk.Sample, 373,384) ~ 56, 
+            between(ReversalBlk.Sample, 289,300) ~ 57, 
+            between(ReversalBlk.Sample, 301,312) ~ 58, 
+            between(ReversalBlk.Sample, 313,324) ~ 59,
+            between(ReversalBlk.Sample, 325,336) ~ 60,
+            between(ReversalBlk.Sample, 337,348) ~ 61,
+            between(ReversalBlk.Sample, 349,360) ~ 62,
+            between(ReversalBlk.Sample, 361,372) ~ 63,
+            between(ReversalBlk.Sample, 373,384) ~ 64
+           ))
+
+#Create an overall run (1-4) variable
+df_bothV <- df_bothV %>% 
+  mutate(runOrder = case_when(
+    between(blockOrder, 1, 16) ~ 1,
+    between(blockOrder, 17, 32) ~ 2,
+    between(blockOrder, 33, 48) ~ 3,
+    between(blockOrder, 49, 64) ~ 4,
+            ))
+
+#Create var denonoting whether acq or rev run
+df_bothV <- df_bothV %>% 
+  mutate(runType = case_when(
+    between(blockOrder, 1, 8) ~ "acqRun1",
+    between(blockOrder, 17, 24) ~ "acqRun2",
+    between(blockOrder, 33, 40) ~ "acqRun3",
+    between(blockOrder, 49, 56) ~ "acqRun4",
+    between(blockOrder, 9, 16) ~ "revRun1",
+    between(blockOrder, 25, 32) ~ "revRun2",
+    between(blockOrder, 41, 48) ~ "revRun3",
+    between(blockOrder, 57, 64) ~ "revRun4",
+            ))
+
+```
+
+## Add accuracy scores for aim 1a and 1b
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#Recode the outcome for hBayesDM
+df_bothV <- df_bothV %>% 
+  mutate(outcome = case_when(Active == 'Hit' ~ 1, 
+                        Active == 'Other' ~ 0, 
+                        Active == 'FalseAlarm' ~ -1)
+  )
+
+#Create variable that collapses accuracy across each block
+df_bothV <- df_bothV %>% 
+  group_by(Subject, blockOrder) %>% 
+  mutate(totalHit = 
+           length(which(outcome==1))
+           ) 
+
+#Recode choice as 1 and 2 for hBayesDM
+df_bothV <- df_bothV %>% 
+  dplyr::mutate(choice = ifelse(is.na(Stm.RESP), 2, 1)
+                            )
+```
+
+## Make final merged file with only vars I need
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+#Final list of variables I need for analyses and/or descriptives and will include in final data files:
+#Subject
+#Order
+#Acq100Blk.Sample
+#ReversalBlk.Sample
+#Stim
+#Version
+#trial_type
+#Condition
+#Stm.RESP
+#Total
+#Active
+#Outcome
+#blockC
+#blockOrder
+#runOrder
+#runType
+#totalHit
+
+#Pull these final vars for final analysis dataset
+df_bothV <- df_bothV %>% 
+  dplyr::select(Subject, Order, Acq100Blk.Sample, ReversalBlk.Sample, Stim, Version, trial_type, Condition, Stm.RESP, choice, Total, Active, outcome, blockC, blockOrder, runOrder, runType, totalHit)
+
+```
+
+## Save out final files -- one in cleaning folder and one in analyses
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+write.csv(df_bothV,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Eprime merging and cleaning/df_bothV.csv")
+
+write.csv(df_bothV,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/df_bothV.csv")
+
+df_lines <- df_bothV %>% 
+  filter(Version == "LineDrawing") #filtered on stim type
+
+#save out the cleaned lines version
+write.csv(df_lines,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Eprime merging and cleaning/df_lines.csv")
+
+write.csv(df_lines,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/df_lines.csv")
+
+df_pics <- df_bothV %>% 
+  filter(Version == "Ecological") #filtered on stim type
+
+#save out the cleaned pics version
+write.csv(df_pics,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Eprime merging and cleaning/df_pics.csv")
+
+write.csv(df_pics,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/df_pics.csv")
+```
+
+

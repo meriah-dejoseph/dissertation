@@ -1,0 +1,4581 @@
+---
+title: "LEAP_AIM1 ANALYSES"
+author: "Meriah DeJoseph"
+date: '2022 - 2023'
+output: html_document
+---
+
+## About
+This file creates analytic datasets, runs Aim 1 analyses, and generates descriptive statistics and plots.
+
+# DATASET CREATION
+
+## Libraries
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+library('dplyr')
+library('tidyr')
+library('readr')
+library('hBayesDM')
+library('brms')
+library('knitr')
+library('vioplot')
+library('patchwork')
+library('RColorBrewer')
+library('stats')
+library('ggplot2')
+library('ggmap')
+library('AER')
+library('glmnet')
+library('igraph')
+library('xtable')
+library('corrplot')
+library('ggdensity')
+library('ggpubr')
+library('loo')
+library('lme4')
+library('broom')
+library('interactions')
+library('rstan')
+
+```
+
+## Load data made from cleaning file
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+#Cleaning file data '00_eprime_data_cleaning' generated the datasets below that were saved out in this working directory that I pull that data from:
+setwd("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/AIM 1 LEAP ANALYSIS FILES")
+
+#Load data made from cleaning file (00_eprime_data_cleaning.Rmd)
+lines <-read_csv("df_lines.csv")
+pics <-read_csv("df_pics.csv")
+bothV <-read_csv("df_bothV.csv")
+
+
+
+
+##########quick descriptives
+#Get # correct hits, false alarms, and no press
+
+#lines
+deslines <- lines %>% 
+  group_by(Subject) %>% 
+  mutate(corrHits = (length(which(outcome==1))),
+         falseAlarm = (length(which(outcome==-1))),
+         noPress = (length(which(outcome==0))),
+         )
+
+deslines <- deslines %>% 
+  select(Subject, corrHits, falseAlarm, noPress)
+
+deslineswide <- distinct(deslines, Subject, .keep_all = TRUE)
+
+summary(deslineswide[c("corrHits", "falseAlarm", "noPress")])
+
+#box plots
+# Melt the data into long format
+deslineslong <- tidyr::gather(deslineswide, key = "variable", value = "value", -Subject)
+
+# Create the plot
+ggplot(data = deslineslong, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  theme_classic() +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Non-Emotional version", x = "Variable", y = "Total")+
+  guides(fill=FALSE)+
+  theme(strip.text = element_blank())
+
+
+
+#pics
+despics <- pics %>% 
+  group_by(Subject) %>% 
+  mutate(corrHits = (length(which(outcome==1))),
+         falseAlarm = (length(which(outcome==-1))),
+         noPress = (length(which(outcome==0))),
+         )
+
+despics <- despics %>% 
+  select(Subject, corrHits, falseAlarm, noPress)
+
+despicswide <- distinct(despics, Subject, .keep_all = TRUE)
+
+summary(despicswide[c("corrHits", "falseAlarm", "noPress")])
+
+#box plots
+# Melt the data into long format
+despicslong <- tidyr::gather(despicswide, key = "variable", value = "value", -Subject)
+
+# Create the plot
+ggplot(data = despicslong, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  theme_classic() +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Socioemotional version", x = "Variable", y = "Total")+
+  guides(fill=FALSE)+
+  theme(strip.text = element_blank())
+
+```
+
+## Create accuracy variables used for Aim 1 and/or descriptives
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#quick count for max # of correct hits
+trialtype <- lines %>% 
+  group_by(Subject) %>% 
+  count(lines$trial_type)
+
+trialtype2 <- pics %>% 
+  group_by(Subject) %>% 
+  count(pics$trial_type)
+
+#First create accuracy for each version, out of num times they clicked
+lines2 <- lines %>% 
+  group_by(Subject) %>% 
+  mutate(numClickLines = (length(which(Stm.RESP == "{SPACE}"))))
+
+lines2 <- lines2 %>% 
+  group_by(Subject) %>% 
+  mutate(AccClickLines = (length(which(outcome==1))/numClickLines))
+
+#> range(lines2$AccClickLines)
+#[1] 0.5654206 0.8253968
+#> mean(lines2$AccClickLines)
+#[1] 0.7132225
+
+#Create # hits then count total
+lines2 <- lines2 %>% 
+  dplyr::mutate(numRewLines = 
+                  if_else((Active =="Hit"), 1, 0))
+lines2 <- lines2 %>% 
+  group_by(Subject) %>%      
+  mutate(totRewLines = (length(which(numRewLines==1))))
+
+#total correct hits out of all possible rewards
+lines2 <- lines2 %>% 
+  group_by(Subject) %>%      
+  mutate(AccRewLines = totRewLines/192)
+#> range(lines2$AccRewLines)
+#[1] 0.3697917 0.9791667
+#> mean(lines2$AccRewLines)
+#[1] 0.8233817
+
+
+pics2 <- pics %>% 
+  group_by(Subject) %>% 
+  mutate(numClickPics = (length(which(Stm.RESP == "{SPACE}"))))
+
+pics2 <- pics2 %>% 
+  group_by(Subject) %>% 
+  mutate(AccClickPics = (length(which(outcome==1))/numClickPics))
+
+#> range(pics2$AccClickPics)
+#[1] 0.5508197 0.8453608
+#> mean(pics2$AccClickPics)
+#[1] 0.7349536
+
+#Create # hits then count total
+pics2 <- pics2 %>% 
+  dplyr::mutate(numRewPics = 
+                  if_else((Active =="Hit"), 1, 0))
+pics2 <- pics2 %>% 
+  group_by(Subject) %>%      
+  mutate(totRewPics = (length(which(numRewPics==1))))
+
+#total correct hits out of all possible rewards
+pics2 <- pics2 %>% 
+  group_by(Subject) %>%      
+  mutate(AccRewPics = totRewPics/192)
+#> range(pics2$AccRewPics)
+#[1] 0.2083333 0.9947917
+#> mean(pics2$AccRewPics)
+#0.8228237
+
+
+
+#Create variable that accounts for both correct hits (+1), false alarms (-1), and neutral (0)
+lines2 <- lines2 %>% 
+  group_by(Subject) %>% 
+  mutate(totPtsLines = sum(outcome))
+
+pics2 <- pics2 %>% 
+  group_by(Subject) %>% 
+  mutate(totPtsPics = sum(outcome))
+
+
+
+
+
+#reshape lines and pics
+lineswide <- lines2 %>% 
+  select(Subject, AccClickLines, AccRewLines, totRewLines, totPtsLines)
+lineswide <- distinct(lineswide, Subject, .keep_all = TRUE)
+
+picswide <- pics2 %>% 
+  select(Subject, AccClickPics, AccRewPics, totRewPics, totPtsPics)
+picswide <- distinct(picswide, Subject, .keep_all = TRUE)
+
+#merge lines and pics
+accmerge <- merge(lineswide, picswide, by = "Subject")
+
+#save
+write.csv(accmerge,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/accMerged.csv")
+
+```
+
+
+
+
+
+
+
+# AIM 1B COGNITIVE PARAMETER CREATION
+
+Link to hBayesDM overview:
+https://ccs-lab.github.io/hBayesDM/articles/getting_started.html
+
+Link to specific function (Probabilistic reversal learning task; reward-punishment model) I am using (suggested by package author Dr. Ahn):
+https://ccs-lab.github.io/hBayesDM/reference/prl_rp_multipleB.html
+
+## Prep hBayesDm data 
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+
+#Using instructions from the hBayesDM guide: 
+#https://ccs-lab.github.io/hBayesDM/articles/getting_started.html
+
+#Stan models will be precompiled during installation and models will run immediately when called
+Sys.setenv(BUILD_ALL='true')  # Build all the models on installation
+Sys.setenv(MAKEFLAGS='-j 4')  # Use 4 cores for compilation (or the number you want)
+
+#Define vars required by package:
+#subjID: Subject
+#block: here doing block by image
+#choice: choice
+#NOTE: choice here is 1 = press and 2 = no press
+#outcome: outcome
+#NOTE: package requires outcome be reward = 1; loss = -1. I added in 0 = no outcome; because if they don't press, then no feedback is given
+
+#First have to make new block var by image -- 24 each version
+
+#lines 
+lines <- lines %>% 
+  mutate(blockimage = case_when(
+                        Stim=="images/image3.bmp" ~ 1, 
+                        Stim=="images/image12.bmp" ~ 2, 
+                        Stim=="images/image11.bmp" ~ 3,
+                        Stim=="images/image4.bmp" ~ 4,
+                        Stim=="images/image5.bmp" ~ 5,
+                        Stim=="images/image10.bmp" ~ 6,
+                        Stim=="images/image8.bmp" ~ 7,
+                        Stim=="images/image1.bmp" ~ 8,
+                        Stim=="images/image6.bmp" ~ 9, 
+                        Stim=="images/image2.bmp" ~ 10, 
+                        Stim=="images/image7.bmp" ~ 11,
+                        Stim=="images/image9.bmp" ~ 12,
+                        Stim=="images/image14.bmp" ~ 13,
+                        Stim=="images/image21.bmp" ~ 14,
+                        Stim=="images/image24.bmp" ~ 15,
+                        Stim=="images/image23.bmp" ~ 16,
+                        Stim=="images/image19.bmp" ~ 17,
+                        Stim=="images/image18.bmp" ~ 18,
+                        Stim=="images/image20.bmp" ~ 19,
+                        Stim=="images/image22.bmp" ~ 20,
+                        Stim=="images/image17.bmp" ~ 21,
+                        Stim=="images/image15.bmp" ~ 22,
+                        Stim=="images/image13.bmp" ~ 23,
+                        Stim=="images/image16.bmp" ~ 24
+                        ))
+
+#pics
+pics <- pics %>% 
+  mutate(blockimage = case_when(
+                        Stim=="images/2095_Neg.bmp" ~ 1, 
+                        Stim=="images/2395_Pos.bmp" ~ 2, 
+                        Stim=="images/6561_Neg.bmp" ~ 3,
+                        Stim=="images/2694_Neg.bmp" ~ 4,
+                        Stim=="images/2700_Neg.bmp" ~ 5,
+                        Stim=="images/8502_Pos.bmp" ~ 6,
+                        Stim=="images/2691_Neg.bmp" ~ 7,
+                        Stim=="images/2299_Pos.bmp" ~ 8,
+                        Stim=="images/8496_Pos.bmp" ~ 9, 
+                        Stim=="images/8490_Pos.bmp" ~ 10, 
+                        Stim=="images/7230_Pos.bmp" ~ 11,
+                        Stim=="images/6838_Neg.bmp" ~ 12,
+                        Stim=="images/9911_Neg.bmp" ~ 13,
+                        Stim=="images/8501_Pos.bmp" ~ 14,
+                        Stim=="images/9341_Neg.bmp" ~ 15,
+                        Stim=="images/7330_Pos.bmp" ~ 16,
+                        Stim=="images/2682_Neg.bmp" ~ 17,
+                        Stim=="images/2278_Neg.bmp" ~ 18,
+                        Stim=="images/2360_Pos.bmp" ~ 19,
+                        Stim=="images/8497_Pos.bmp" ~ 20,
+                        Stim=="images/4624_Pos.bmp" ~ 21,
+                        Stim=="images/2091_Pos.bmp" ~ 22,
+                        Stim=="images/6821_Neg.bmp" ~ 23,
+                        Stim=="images/6250_Neg.bmp" ~ 24
+                        ))
+
+#Because my vars are not named in the appropriate format, I will first rename a few vars and save out as a tab-separated .txt file that the package requires
+lines$subjID <- lines$Subject
+pics$subjID <- pics$Subject
+lines$block <- lines$blockimage #changing this from block to run bc learning is dependent
+pics$block <- pics$blockimage
+
+#Save out versions with only necc vars
+lines1bimage <- lines %>% 
+  dplyr::select(subjID, block, choice, outcome)
+
+pics1bimage <- pics %>% 
+  dplyr::select(subjID, block, choice, outcome)
+
+#Save out as .txt files
+write.table(lines1bimage,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/lines1bimage.txt")
+
+write.table(pics1bimage,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/pics1bimage.txt")
+
+```
+
+## Fit models for lines version, plot, & compare
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+set.seed(5)
+
+#First set path to the lines file and re-read in data
+dataPath <- ("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/lines1bimage.txt")
+
+lines1bimage <- read.table("lines1bimage.txt", header = TRUE, sep = "", dec = ".")
+
+#Fit model using example settings; 3 parameters will be estimated:
+#aRew (reward learning rate), APun (punishment learning rate), and beta (inverse temperature)
+output1 <- prl_rp_multipleB(
+  data = lines1bimage, niter = 4000, nwarmup = 1000, nchain = 4, ncore = 4)
+# output1, a hBayesDM object, is a list with 4 elements (class: “hBayesDM”):
+# 
+# model: Name of the fitted model (i.e., output1$model is ‘gng_m1’).
+# allIndPars: Summary of individual subjects’ parameters (default: mean). Users can also choose to use median or mode (e.g., output1 = gng_m1("example", indPars="mode") ).
+# parVals: Posterior samples of all parameters. Extracted by rstan::extract(rstan_object, permuted=T). Note that hyper (group) mean parameters are indicated by mu_PARAMETER (e.g., mu_xi, mu_ep, mu_rho).
+# fit: RStan object (i.e., fit = stan(file='gng_m1.stan', ...) ).
+# rawdata: Raw trial-by-trial data used for modeling. Raw data are provided in the output to allow users to easily access data and compare trial-by-trial model-based regressors (e.g., prediction errors) with choice data.
+# modelRegressor (optional): Trial-by-trial model-based regressors such as prediction errors, the values of the chosen option, etc. For each model, we pre-select appropriate model-based regressors.
+
+# 𝑅̂  (Rhat) is an index of the convergence of the chains. 𝑅̂  values close to 1.00 would indicate that MCMC chains are converged to stationary target distributions. When we check MCMC performance of our models on sample data, 𝑅̂  values are 1.00 for most parameters or at most 1.04.
+
+#View output
+output1$fit
+
+#Show the WAIC and LOOIC model fit estimates
+printFit(output1)
+
+#Visually check convergence of the sampling chains (should look like 'hairy caterpillars')
+plot(output1, type = "trace")
+#plot(output1, type="trace", inc_warmup=T) 
+#Trace plots should be consistent with Rhat values
+
+#Plot the posterior distributions of the hyper-parameters (distributions should be unimodal)
+plot(output1)
+
+#Visualize individual parameters to plot each individual’s 𝜖 (learning rate) parameter (e.g., individual posterior distributions):
+plotInd(output1, "Apun")
+plotInd(output1, "Arew")
+plotInd(output1, "beta")
+
+#Show pairs to make sure there are no patterns suggestive of dependencies
+pairs(output1$fit, pars = c("mu_Apun", "mu_Arew", "mu_beta"))
+
+#Extract individual parameters
+linesPars <- as.data.frame(output1$allIndPars)
+
+#View distributions
+linespunhist <- ggplot(data = linesPars, aes(x = Apun)) + 
+  geom_histogram(color = "firebrick3", fill = "firebrick1")  +
+  labs(x='Punishment Learning Rate (Lines Version)') +
+  theme_classic()
+ggsave("linespunhist.png")
+
+linesrewhist <- ggplot(data = linesPars, aes(x = Arew)) + 
+  geom_histogram(color = "seagreen4", fill="seagreen3")  +
+  labs(x='Reward Learning Rate (Lines Version)') +
+  theme_classic()
+ggsave("linesrewhist.png")
+
+linesbetahist <- ggplot(data = linesPars, aes(x = beta)) + 
+  geom_histogram(color = "darkgoldenrod4", fill = "darkgoldenrod3")  +
+  labs(x='Inverse Temperature (Lines Version)') +
+  theme_classic()
+ggsave("linesbetahist.png")
+
+#Save out data
+write.csv(linesPars,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/linesPars.csv")
+
+```
+
+## Fit models for pics version, plot, & compare
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#First set path to the pics file and re-read in data
+dataPath <- ("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/pics1bimage.txt")
+
+pics1bimage <- read.table("pics1bimage.txt", header = TRUE, sep = "", dec = ".")
+
+#Fit model using example settings; 3 parameters will be estimated:
+#aRew (reward learning rate), APun (punishment learning rate), and beta (inverse temperature)
+output2 <- prl_rp_multipleB(
+  data = pics1bimage, niter = 4000, nwarmup = 1000, nchain = 4, ncore = 4)
+
+# output1, a hBayesDM object, is a list with 4 elements (class: “hBayesDM”):
+# 
+# model: Name of the fitted model (i.e., output1$model is ‘gng_m1’).
+# allIndPars: Summary of individual subjects’ parameters (default: mean). Users can also choose to use median or mode (e.g., output1 = gng_m1("example", indPars="mode") ).
+# parVals: Posterior samples of all parameters. Extracted by rstan::extract(rstan_object, permuted=T). Note that hyper (group) mean parameters are indicated by mu_PARAMETER (e.g., mu_xi, mu_ep, mu_rho).
+# fit: RStan object (i.e., fit = stan(file='gng_m1.stan', ...) ).
+# rawdata: Raw trial-by-trial data used for modeling. Raw data are provided in the output to allow users to easily access data and compare trial-by-trial model-based regressors (e.g., prediction errors) with choice data.
+# modelRegressor (optional): Trial-by-trial model-based regressors such as prediction errors, the values of the chosen option, etc. For each model, we pre-select appropriate model-based regressors.
+
+# 𝑅̂  (Rhat) is an index of the convergence of the chains. 𝑅̂  values close to 1.00 would indicate that MCMC chains are converged to stationary target distributions. When we check MCMC performance of our models on sample data, 𝑅̂  values are 1.00 for most parameters or at most 1.04.
+
+#View output
+output2$fit
+
+#Show the WAIC and LOOIC model fit estimates
+printFit(output2)
+
+#Visually check convergence of the sampling chains (should look like 'hairy caterpillars')
+plot(output2, type = "trace")
+#plot(output2, type="trace", inc_warmup=T) 
+#Trace plots should be consistent with Rhat values
+
+#Plot the posterior distributions of the hyper-parameters (distributions should be unimodal)
+plot(output2)
+
+#Visualize individual parameters to plot each individual’s 𝜖 (learning rate) parameter (e.g., individual posterior distributions):
+plotInd(output2, "Apun")
+plotInd(output2, "Arew")
+plotInd(output2, "beta")
+
+#View pairs plot
+pairs(output2$fit, pars = c("mu_Apun", "mu_Arew", "mu_beta"))
+
+#Extract individual parameters
+picsPars <- as.data.frame(output2$allIndPars)
+
+#View distributions
+hist(picsPars$Apun)
+hist(picsPars$Arew)
+hist(picsPars$beta)
+
+#View distributions
+picspunhist <- ggplot(data = picsPars, aes(x = Apun)) + 
+  geom_histogram(color = "firebrick3", fill = "firebrick1")  +
+  labs(x='Punishment Learning Rate (Pics Version)') +
+  theme_classic()
+ggsave("picspunhist.png")
+
+picsrewhist <- ggplot(data = picsPars, aes(x = Arew)) + 
+  geom_histogram(color = "seagreen4", fill="seagreen3")  +
+  labs(x='Reward Learning Rate (Pics Version)') +
+  theme_classic()
+ggsave("picsrewhist.png")
+
+picsbetahist <- ggplot(data = picsPars, aes(x = beta)) + 
+  geom_histogram(color = "darkgoldenrod4", fill = "darkgoldenrod3")  +
+  labs(x='Inverse Temperature (Pics Version)') +
+  theme_classic()
+ggsave("picsbetahist.png")
+
+#Save out data
+write.csv(picsPars,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/picsPars.csv")
+
+```
+
+## Posterior predictive checks
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#From hBayesDM: Simply put, posterior predictive checks refer to when a fitted model is used to generate simulated data and check if simulated data are similar to the actual data. Posterior predictive checks are useful in assessing if a model generates valid predictions. Simulated data from posterior predictive checks are contained in hBayesDM_OUTPUT$parVals$y_pred. In a future release, we will include a function/command that can conveniently summarize and plot posterior predictive checks. In the mean time, users can program their own codes like the following:
+
+##Lines version
+#Apun
+dim(output1$parVals$Apun) 
+Apun_pred_mean = apply(output1$parVals$Apun, c(2,1), mean)
+dim(Apun_pred_mean) #56 (subjects) x 12000 (trials)
+numSubjs = dim(output1$allIndPars)[1] 
+subjList = unique(output1$rawdata$subjID)  # list of subject IDs
+maxT = max(table(output1$rawdata$subjID))  # maximum number of trials
+true_y = array(NA, c(numSubjs, maxT)) # true data (`true_y`)
+## true data for each subject
+for (i in 1:numSubjs) {
+  tmpID = subjList[i]
+  tmpData = subset(output1$rawdata, subjID == tmpID)
+  true_y[i, ] = tmpData$choice # only for data with a 'choice' column
+}
+## Subject #1
+plot(true_y[1, ], type="l", xlab="Trial", ylab="Choice (1 or 2)", yaxt="n")
+lines(Apun_pred_mean[1,], col="red", lty=2)
+axis(side=2, at = c(0,1) )
+legend("bottomleft", legend=c("True", "PPC"), col=c("black", "red"), lty=1:2)
+
+## Subject #2
+plot(true_y[2, ], type="l", xlab="Trial", ylab="Choice (1 or 2)", yaxt="n")
+lines(Apun_pred_mean[1,], col="red", lty=2)
+axis(side=2, at = c(0,1) )
+legend("bottomleft", legend=c("True", "PPC"), col=c("black", "red"), lty=1:2)
+
+
+```
+
+## Merge new variables into dataset with cog parameters
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#NOTE TO SELF FOR ADDING VARS LATE: start here by calling in accmerge and parmerge and go from there
+
+#open accmerge
+accmerge <- read.csv('accMerged.csv')
+
+#before merging parameter dfs, need to rename vars
+linesPars2 <- linesPars %>% 
+  mutate(ApunLines = Apun,
+         ArewLines = Arew,
+         betaLines = beta, 
+         Subject = subjID) %>% 
+  select(Subject, ApunLines, ArewLines, betaLines)
+
+picsPars2 <- picsPars %>% 
+  mutate(ApunPics = Apun,
+         ArewPics = Arew,
+         betaPics = beta, 
+         Subject = subjID) %>% 
+  select(Subject, ApunPics, ArewPics, betaPics)
+
+parmerge <- merge(linesPars2, picsPars2, by = "Subject")
+write.csv(parmerge,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/parmerge.csv")
+
+parmerge <- read.csv('parmerge.csv')
+
+#merge lines and pics with linespars and picspars
+accParsMerged <- merge(accmerge, parmerge, by = "Subject")
+
+#merge demo
+demo_clean <- read_csv("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/RedCap merging and cleaning/demo_clean.csv")
+
+demo_clean <- demo_clean %>% 
+  rename(Subject = id) %>% 
+  select(Subject, cage, female, highed, INR, freelunch)
+
+accParsMerged <- merge(demo_clean, accParsMerged, by = "Subject")
+
+accParsMerged <- accParsMerged %>% 
+  select(-c(X.x, X.y))
+  
+
+#Save out wide data
+write.csv(accParsMerged,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/accParsMerged.csv")
+
+#wide to long
+accParsLong <- reshape(accParsMerged, direction='long', 
+        varying=list(c("AccClickLines","AccClickPics"), 
+                     c("AccRewLines","AccRewPics"), 
+                     c("totRewLines","totRewPics"), 
+                     c("totPtsLines","totPtsPics"), 
+                     c("ApunLines","ApunPics"),
+                     c("ArewLines","ArewPics"),
+                     c("betaLines","betaPics")), 
+        timevar= ('version'),
+        times=c('lines', 'pics'),
+        v.names=c("AccClick","AccRew","totAcc","totPts", "Apun",
+                  "Arew", "beta"),
+          idvar = "Subject")
+
+
+write.csv(accParsLong,"~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/accParsLong.csv")
+
+```
+
+
+
+
+
+
+
+# DESCRIPTIVES
+
+## Load data 
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+#Set working directory
+setwd("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS")
+
+#Load data made from cleaning file (00_eprime_data_cleaning.Rmd)
+accParsMerged <-read_csv("accParsMerged.csv")
+accParsMerged$X1 <- NULL
+accParsMerged$X.x <- NULL
+accParsMerged$X.y <- NULL
+accParsLong <-read_csv("accParsLong.csv")
+accParsLong$X1 <- NULL
+accParsLong$X.x <- NULL
+accParsLong$X.y <- NULL
+
+```
+
+## Correlations
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+my_matrix <- accParsMerged[, c(2, 4:5, 10, 14, 15:20)]
+
+#Correlations
+my_cor <- cor(my_matrix,use="complete.obs")
+# upper<-my_cor
+# upper[upper.tri(my_cor)]<-""
+# upper<-as.data.frame(upper)
+# print(xtable(upper), type="html")
+
+#Another way of looking at correlations
+corrplot(my_cor, type="upper", order="hclust", tl.col="black", tl.srt=45)
+corrplot(my_cor, method = "color")
+col = colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(my_cor, method="shade", shade.col=NA, tl.col="black",
+                          tl.srt=45, col=col(200), addCoef.col="black", 
+                          cl.pos="n", type = "lower", number.cex=0.65)
+
+#Correlations separated by version
+
+#lines
+corlines <- accParsLong %>% 
+  filter(version == 'lines')
+  
+matrix_lines <- corlines[, c(2, 4:5, 8:14)]
+cor_lines <- cor(matrix_lines,use="complete.obs")
+
+corrplot(cor_lines, type="upper", order="hclust", tl.col="black", tl.srt=45)
+corrplot(cor_lines, method = "color")
+col = colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(cor_lines, method="shade", shade.col=NA, tl.col="black",
+                          tl.srt=45, col=col(200), addCoef.col="black", 
+                          cl.pos="n", type = "lower", number.cex=0.65)
+
+#pics
+corpics <- accParsLong %>% 
+  filter(version == 'pics')
+  
+matrix_pics <- corpics[, c(2, 4:5, 8:14)]
+cor_pics <- cor(matrix_pics,use="complete.obs")
+
+corrplot(cor_pics, type="upper", order="hclust", tl.col="black", tl.srt=45)
+corrplot(cor_pics, method = "color")
+col = colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(cor_pics, method="shade", shade.col=NA, tl.col="black",
+                          tl.srt=45, col=col(200), addCoef.col="black", 
+                          cl.pos="n", type = "lower", number.cex=0.65)
+
+
+```
+
+## Density plots
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#Density plots by version
+ggdensity(accParsLong, x = "AccClick", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="% accuracy on clicks", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("AccClickDensity.png", width = 4, height = 4)
+
+ggdensity(accParsLong, x = "AccRew", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="proportion correct hits to reward trials", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("AccRewDensity.png", width = 4, height = 4)
+
+ggdensity(accParsLong, x = "totAcc", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="total correct hits", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("TotAccDensity.png", width = 4, height = 4)
+
+ggdensity(accParsLong, x = "totPts", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="summed points (+1 for hit, -1 false alarm, 0 no press)", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("TotPtsDensity.png", width = 4, height = 4)
+
+ggdensity(accParsLong, x = "Apun", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="punishment learning rate", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("ApunDensity.png", width = 4, height = 4)
+
+ggdensity(accParsLong, x = "Arew", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="reward learning rate", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("ARewDensity.png", width = 4, height = 4)
+
+ggdensity(accParsLong, x = "beta", 
+          add = "mean", rug = TRUE,
+          color = "version", fill = "version",  
+          xlab="inverse temperature", 
+          palette = c("#C39E5C", "#DA723C"))
+ggsave("betaDensity.png", width = 4, height = 4)
+
+
+
+#demo
+hist(accParsMerged$INR, col= "#0066ff", xlab="Family income-to-needs")
+
+accParsMerged <- accParsMerged %>% 
+  mutate(highed2 = case_when(highed == 3 ~ "Some college",
+                              highed == 4 ~ "College degree",
+                              highed == 5 ~ "Graduate/professional degree",
+                              TRUE ~ "Other"))
+highed2_ordered <- factor(accParsMerged$highed2, levels=c("Some college", "College degree", "Graduate/professional degree"))
+# Create the bar chart using the ordered factor variable
+ggplot(accParsMerged, aes(x=highed2_ordered)) +
+  geom_bar(fill="#ffb366", color="#ffb366") +
+  theme_classic() +
+  xlab("Highest parent education level") +
+  ylab("Frequency")
+
+hist(accParsMerged$cage, col="#9933ff", xlab="Child age")
+
+```
+
+## Violin plots
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+#Violin plots 
+
+#First, round age to color by age
+accParsLong <- accParsLong %>% 
+  mutate(ageround = round(cage))
+
+ggplot(accParsLong, aes(x=version, y=AccClick)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  ylab('% accuracy on clicks') 
+ggsave("AccClickViolin.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=AccRew)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  ylab('proportion hits to reward trials') 
+ggsave("AccRewViolin.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=totAcc)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  ylab('total correct hits') 
+ggsave("TotAccViolin.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=totPts)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  ylab('summed points (+1 for hit, -1 false alarm, 0 no press)') 
+ggsave("TotPtsViolin.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=Apun)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  #ylab('punishment learning rate') 
+  ylab(expression(~ alpha[punishment]))
+ggsave("apunViolin.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=Arew)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  #ylab('reward learning rate') 
+  ylab(expression(~ alpha[reward]))
+ggsave("arewViolin.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=beta)) + 
+  geom_violin() + 
+  geom_boxplot(width=0.2) +
+  geom_jitter(size=2, aes(colour = as.factor(ageround)), 
+              position=position_jitter(0.2), show.legend = TRUE) + 
+  labs(color='child age') +
+  theme(legend.position="none") +
+  theme_classic() +
+  #ylab('inverse temperature') 
+  ylab(expression(~ beta))
+ggsave("betaViolin.png", width = 4, height = 4)
+
+
+#More violins without age color
+ggplot(accParsLong, aes(x=version, y=AccClick)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+  ylab('% accuracy on clicks') 
+ggsave("AccClickViolin2.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=AccRew)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+  ylab('proportion hits to reward trials') 
+ggsave("AccRewViolin2.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=totAcc)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+  ylab('total correct hits') 
+ggsave("TotAccViolin2.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=totPts)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+  ylab('summed points (+1 for hit, -1 false alarm, 0 no press)') 
+ggsave("TotPtsViolin2.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=Apun)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+    theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) +
+  #ylab('punishment learning rate') 
+  ylab(expression(~ alpha[punishment]))
+ggsave("apunViolin2.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=Arew)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) +
+  #ylab('reward learning rate') 
+  ylab(expression(~ alpha[reward]))
+ggsave("arewViolin2.png", width = 4, height = 4)
+
+ggplot(accParsLong, aes(x=version, y=beta)) + 
+  geom_violin(aes(fill= version)) + 
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  geom_boxplot(width=0.2, show.legend = FALSE) +
+  geom_jitter(size=1.2, 
+              position=position_jitter(0.2), show.legend = FALSE) + 
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) +
+  #ylab('inverse temperature') 
+  ylab(expression(~ beta))
+ggsave("betaViolin2.png", width = 4, height = 4)
+
+```
+
+## Scatterplots
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+#Scatterplots by age
+ggplot(data = accParsLong, aes(x = cage, y = Apun, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('punishment learning rate') +
+  ylab(expression(~ alpha[punishment])) +
+  xlab ('age') +
+  theme_classic() + 
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("ApunAgeScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = cage, y = Arew, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('reward learning rate') +
+  ylab(expression(~ alpha[reward])) +
+  xlab ('age') +
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("ArewAgeScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = cage, y = beta, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('inverse temperature') +
+  ylab(expression(~ beta)) +
+  xlab ('age') +
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("betaAgeScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = cage, y = totPts, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('inverse temperature') +
+  ylab('total summed points') +
+  xlab ('age') +
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("totPtsAgeScatter.png", width = 5, height = 4)
+
+  
+
+  
+#Scatterplots by INR
+ggplot(data = accParsLong, aes(x = INR, y = Apun, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('punishment learning rate') +
+  ylab(expression(~ alpha[punishment])) +
+  xlab ('INR') +
+  theme_classic() + 
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("ApunINRScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = INR, y = Arew, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('reward learning rate') +
+  ylab(expression(~ alpha[reward])) +
+  xlab ('INR') +
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("ArewINRScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = INR, y = beta, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('inverse temperature') +
+  ylab(expression(~ beta)) +
+  xlab ('INR') +
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("betaINRScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = INR, y = totPts, group_by(version), color = version)) +
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #ylab('inverse temperature') +
+  ylab('total summed points') +
+  xlab ('INR') +
+  theme_classic() +
+      theme(axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15)) 
+  ggsave("totPtsINRScatter.png", width = 5, height = 4)
+  
+  
+  
+
+  
+#Scatterplots by accuracy
+ggplot(data = accParsLong, aes(x = Apun, y = AccClick, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('punishment learning rate') +
+  xlab(expression(~ alpha[punishment])) +
+  ylab ('% accuracy on clicks') +
+  theme_classic() 
+  ggsave("ApunClickScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = Apun, y = AccRew, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('punishment learning rate') +
+  xlab(expression(~ alpha[punishment])) +
+  ylab ('proportion hits to reward trials') +
+  theme_classic() 
+  ggsave("ApunRewScatter.png", width = 5, height = 4)
+  
+ggplot(data = accParsLong, aes(x = Apun, y = totPts, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('punishment learning rate') +
+  xlab(expression(~ alpha[punishment])) +
+  ylab ('total summed points') +
+  theme_classic() 
+  ggsave("ApuntotPtsScatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong, aes(x = Arew, y = AccClick, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('reward learning rate') +
+  xlab(expression(~ alpha[reward])) +
+  ylab ('% accuracy on clicks') +
+  theme_classic() 
+  ggsave("ArewClickScatter.png", width = 5, height = 4)
+  
+ggplot(data = accParsLong, aes(x = Arew, y = AccRew, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('reward learning rate') +
+  xlab(expression(~ alpha[reward])) +
+  ylab ('proportion hits on reward trials') +
+  theme_classic() 
+  ggsave("ArewRewScatter.png", width = 5, height = 4)
+  
+ggplot(data = accParsLong, aes(x = Arew, y = totPts, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('reward learning rate') +
+  xlab(expression(~ alpha[reward])) +
+  ylab ('total summed points') +
+  theme_classic() 
+  ggsave("ArewtotPtsScatter.png", width = 5, height = 4)
+  
+
+ggplot(data = accParsLong, aes(x = beta, y = AccClick, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('inverse temperature') +
+  xlab(expression(~ beta)) +
+  ylab ('% accuracy on clicks') +
+  theme_classic() 
+  ggsave("betaClickScatter.png", width = 5, height = 4)
+  
+ggplot(data = accParsLong, aes(x = beta, y = AccRew, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('inverse temperature') +
+  xlab(expression(~ beta)) +
+  ylab ('proportion hits on reward trials') +
+  theme_classic() 
+  ggsave("betaRewScatter.png", width = 5, height = 4)
+  
+
+ggplot(data = accParsLong, aes(x = beta, y = totPts, group_by(version), color = version)) + 
+  geom_jitter() + 
+  geom_smooth(aes(fill = version), method = "lm") +
+  scale_color_manual(values=alpha(c("#C39E5C", "#DA723C"), .9))+
+  scale_fill_manual(values=alpha(c("#C39E5C", "#DA723C"), .7))+
+  #xlab('inverse temperature') +
+  xlab(expression(~ beta)) +
+  ylab ('summed points (+1 correct hit, -1 false alarm, 0 no response') +
+  theme_classic() 
+  ggsave("betatotPtsScatter.png", width = 5, height = 4)
+
+
+
+
+
+
+#plot examining the joint parameter space of alpha and beta colored by % correct to descriptively examine what might be optimal
+
+#lines
+ggplot(data = accParsMerged, aes(x = ApunLines, y = betaLines, color=AccClickLines)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('lines inverse temperature') +
+  xlab ('lines punishment learning rate') +
+  theme_classic()
+
+ggplot(data = accParsMerged, aes(x = ArewLines, y = betaLines, color=AccClickLines)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('lines inverse temperature') +
+  xlab ('lines reward learning rate') +
+  theme_classic()
+
+ggplot(data = accParsMerged, aes(x = ApunLines, y = betaLines, color=totRewLines)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('lines inverse temperature') +
+  xlab ('lines punishment learning rate') +
+  theme_classic()
+
+ggplot(data = accParsMerged, aes(x = ArewLines, y = betaLines, color=totRewLines)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('lines inverse temperature') +
+  xlab ('lines reward learning rate') +
+  theme_classic()
+
+
+#pics
+ggplot(data = accParsMerged, aes(x = ApunPics, y = betaPics, 
+                                 color=AccClickPics)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('pics inverse temperature') +
+  xlab ('pics punishment learning rate') +
+  theme_classic() 
+
+ggplot(data = accParsMerged, aes(x = ArewPics, y = betaPics, 
+                                 color=AccClickPics)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('pics inverse temperature') +
+  xlab ('pics reward learning rate') +
+  theme_classic() 
+
+ggplot(data = accParsMerged, aes(x = ApunPics, y = betaPics, 
+                                 color=totRewPics)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('pics inverse temperature') +
+  xlab ('pics punishment learning rate') +
+  theme_classic() 
+
+ggplot(data = accParsMerged, aes(x = ArewPics, y = betaPics, 
+                                 color=totPtsPics)) + 
+  geom_point(size=6, alpha= .7) + 
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('pics inverse temperature') +
+  xlab ('pics reward learning rate') +
+  theme_classic() 
+
+
+
+#More scatterplots by ID
+ggplot(data = accParsLong,
+      aes(x = version, y = totPts, color = as.factor(Subject), group = Subject)) +
+        geom_point() +
+        geom_line() +
+        theme_classic() +
+        theme(legend.position="none")
+  ggsave("totPtsSubjectscatter.png", width = 5, height = 4)
+  
+  ggplot(data = accParsLong,
+      aes(x = version, y = AccClick, color = as.factor(Subject), group = Subject)) +
+        geom_point() +
+        geom_line() +
+        theme_classic() +
+        theme(legend.position="none")
+  ggsave("AccClickSubjectscatter.png", width = 5, height = 4)
+  
+ggplot(data = accParsLong,
+      aes(x = version, y = Apun, color = as.factor(Subject), group = Subject)) +
+        geom_point() +
+        geom_line() +
+        theme_classic() +
+        theme(legend.position="none")
+  ggsave("ApunSubjectscatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong,
+      aes(x = version, y = Arew, color = as.factor(Subject), group = Subject)) +
+        geom_point() +
+        geom_line() +
+        theme_classic() +
+        theme(legend.position="none")
+  ggsave("ArewSubjectscatter.png", width = 5, height = 4)
+
+ggplot(data = accParsLong,
+      aes(x = version, y = beta, color = as.factor(Subject), group = Subject)) +
+        geom_point() +
+        geom_line() +
+        theme_classic() +
+        theme(legend.position="none")
+  ggsave("betaSubjectscatter.png", width = 5, height = 4)
+
+
+
+  
+  
+  
+###########
+#within parameter plots
+#lines
+ggplot(data = accParsMerged, aes(x = ApunLines, y = betaLines, color=cage)) + 
+  geom_point(size=3.5, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "orange") +
+  ylab('Inverse temperature') +
+  xlab ('Punishment learning rate') +
+  theme_classic() +
+      theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Age (years)")
+ggsave("linespunbetaplot.png")
+  
+ggplot(data = accParsMerged, aes(x = ArewLines, y = betaLines, color=cage)) + 
+  geom_point(size=3.5, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "orange") +
+  ylab('Inverse temperature') +
+  xlab ('Reward learning rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Age (years)")
+ggsave("linesrewbetaplot.png")
+
+#with totpts
+ggplot(data = accParsMerged, aes(x = ApunLines, y = betaLines, 
+                                 color=totPtsLines)) + 
+  geom_point(size=4, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('Inverse Temperature') +
+  xlab ('Punishment Learning Rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15)
+    ,
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Total points")
+ggsave("linespunbetaTOTPTSplot.png")
+
+ggplot(data = accParsMerged, aes(x = ArewLines, y = betaLines, 
+                                 color=totPtsLines)) + 
+  geom_point(size=4, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('Inverse Temperature') +
+  xlab ('Reward Learning Rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Total points")
+ggsave("linesrewbetaTOTPTSplot.png")
+
+
+
+
+
+
+#pics
+ggplot(data = accParsMerged, aes(x = ApunPics, y = betaPics, color=cage)) + 
+  geom_point(size=4, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "orange") +
+  ylab('Inverse temperature') +
+  xlab ('Punishment learning rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Age (years)")
+ggsave("picspunbetaplot.png")
+  
+ggplot(data = accParsMerged, aes(x = ArewPics, y = betaPics, color=cage)) + 
+  geom_point(size=4, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "orange") +
+  ylab('Inverse temperature') +
+  xlab ('Reward learning rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Age (years)")
+ggsave("picsrewbetaplot.png")
+  
+  
+#with totpts
+ggplot(data = accParsMerged, aes(x = ApunPics, y = betaPics, 
+                                 color=totPtsPics)) + 
+  geom_point(size=4, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('Inverse Temperature') +
+  xlab ('Punishment Learning Rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Total points")
+ggsave("picspunbetaTOTPTSplot.png")
+
+ggplot(data = accParsMerged, aes(x = ArewPics, y = betaPics, 
+                                 color=totPtsPics)) + 
+  geom_point(size=4, alpha= .7) + 
+  geom_smooth(method=lm, color="black") +
+  scale_color_gradient(low = "blue", high = "red") +
+  ylab('Inverse Temperature') +
+  xlab ('Reward Learning Rate') +
+  theme_classic() +
+        theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15)
+    ,
+    axis.text.y = element_text(size = 15)) +
+  labs(color = "Total points")
+ggsave("picsrewbetaTOTPTSplot.png")
+
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# AIM 1A BRMS MODELS: ACCURACY OUTCOMES
+
+brms tutorial for multilevel models I used to guide the analyses below:
+https://4ccoxau.github.io/PriorsWorkshop/acknowledging-repeated-measures-multi-level-model.html#videos-on-multi-level-model
+
+This resource is helpful:
+https://psyc-bayes-notes.netlify.app/linear-models.html#one-predictor
+
+This resource is helpful for model comparisons:
+https://bookdown.org/content/3686/metric-predicted-variable-with-multiple-metric-predictors.html
+
+Also this:
+https://osf.io/eancg
+
+## 1a: Setting up brms
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+setwd("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/4_DATA ANALYSIS/AIM 1 LEAP ANALYSIS FILES/")
+
+accParsLong <-read_csv("accParsLong.csv")
+accParsLong$X1 <- NULL
+
+accParsLong$version <- as.factor(accParsLong$version)
+#make age centered
+accParsLong <- accParsLong %>% 
+  mutate (cage_c = cage - 13.27589)
+
+#install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+
+library(cmdstanr)
+check_cmdstan_toolchain(fix = TRUE, quiet = TRUE)
+library(posterior)
+library(bayesplot)
+color_scheme_set("brightblue")
+check_cmdstan_toolchain()
+
+#install_cmdstan(cores = 2, overwrite = T)
+
+cmdstan_path()
+cmdstan_version()
+
+```
+
+Below I decided to use a student-t distribution with relatively wide variances set for my priors. This is for several reasons: (1) trying it with a gaussian resulted in too many divergent transitions in my model, (2) for my data where I have enough info to not use noninformative priors but not enough info (bc of lack of consensus in lit) for a highly informative gaussian prior, a student dist w/ wide variances was suggested by multiple resources I cited above, and (3) I took a principled approach to setting and assessing my priors and a student dist appeared to result in good convergence and model fit. 
+
+Student-t dist allows for more flexibility in the distribution of the data. The main difference between the Gaussian and student t distribution is that a student t distribution with a low degrees of freedom parameter, nu, has heavier tails than the conventional Gaussian distribution. This form of model thus dampens the influence of outliers - incorporating outliers without allowing them to dominate non-outlier data. You can specify a student likelihood in the model using the ‘family’ parameter. As we can see in the results of the below get_prior() function, we now have to provide an additional prior for nu. For the following student t model, we will set the prior to be gamma(2, 0.1):
+
+## 1a: totPts model 1 w/ student priors
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+###########
+#Setup
+
+set.seed(5)
+totPts_f1 <- bf(totPts ~ 1 + version + (1+version|Subject))
+#test <- lmer(totPts ~ 1 + version + (1+version|Subject), data = accParsLong, REML = FALSE, control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(test)
+
+#Setting priors in a principled way
+get_prior(totPts_f1, data = accParsLong, family = student)
+
+#The range of possible values for total points is -384 to 384. It's a fair assumption that most kids will be above zero in this task if they are performing above chance. Let's do a mean of 100 wide a wide variance of 75 and see if we need to adjust after.
+#I expect individual diff and want to set a relatively wide range to account for variation by age; so let's try 25 for variance
+
+#let's see which inv gamma for this is best that takes into account expectations that there will be individual differences but leaves room for uncertainty in how much
+plotInvGamma(5,85)
+
+student_priors1 <- c(
+  prior(normal(100, 25), class = Intercept, lb = -384, ub = 384), 
+  prior(inv_gamma(5,75), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 40), class = b), 
+  prior(inv_gamma(5,75), class = sd, coef = versionpics, group = Subject), 
+  prior(inv_gamma(5,85), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu))
+
+#chatgpt response to these priors:
+# These priors specify a weakly informative prior for the intercept, normal(100,25), that is truncated between -384 and 384, as well as a weakly informative prior for the fixed effect coefficients, normal(0,40). The priors for the random effects (sd) are inv_gamma(5,75) for the intercept and inv_gamma(5,75) for the slope of version. The prior for the residual standard deviation is inv_gamma(5,85). The priors for the correlation matrix are specified with a LKJ(2) prior and the prior for the degrees of freedom of the t-distribution for the residuals is gamma(2,0.1).
+# 
+# These priors imply that we have some prior belief about the plausible ranges of the parameters, but that we are not too confident about the exact values of the parameters. The priors for the random effects imply that there is substantial individual variability in the random effects.
+
+#priors
+totPts_student_m1_prior <- 
+  brm(
+    totPts_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "totPts_student_m1_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(totPts_student_m1_prior, ndraws=100)
+
+
+#############
+#Run model 1
+
+totPts_student_m1 <- 
+  brm(
+    totPts_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "totPts_student_m1",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check before continuing
+plot(totPts_student_m1)
+
+#Summarize results
+summary(totPts_student_m1)
+bayes_R2(totPts_student_m1)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(totPts_student_m1, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(totPts_student_m1, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(totPts_student_m1, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(totPts_student_m1, "versionpics > 0", group = "Subject", scope="coef") #46/56 showed greater performance on pics
+
+
+
+##################
+#Posterior checks
+
+plot(conditional_effects(totPts_student_m1), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+pp_check(totPts_student_m1, ndraws=100)
+pp_check(totPts_student_m1, type = "intervals_grouped", group = "version")
+
+#Draw from the posterior and plot
+Posterior_student_m1 <- as_draws_df(totPts_student_m1)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m1) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("totPtsm1intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b:
+ggplot(Posterior_student_m1) +
+  geom_density(aes(prior_b), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+ggsave("totPtsm1beta.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m1) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("totPtsm1sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m1) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("totPtsm1sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("totPtsm1cor.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("totPtsm1nu.png", width = 4, height = 4)
+
+
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(totPts_student_m1)[["Subject"]][,,"Intercept"]),
+  lines = coef(totPts_student_m1)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(totPts_student_m1)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  totPts = value
+)
+df <- accParsLong[, c("Subject", "version", "totPts")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    totPts = ifelse(version=="lines", mean(df$totPts[df$version=="lines"]), mean(df$totPts[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, totPts, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(totPts_student_m1$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+
+```
+
+## 1a: totPts model 2 w/ age as covariate
+```{r}
+
+###########
+#setup
+
+set.seed(5)
+
+totPts_f2 <- bf(totPts ~ 1 + version + cage_c + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(totPts_f2, data = accParsLong, family = student)
+
+
+student_priors2 <- c(
+  prior(normal(100, 25), class = Intercept, lb = -384, ub = 384), 
+  prior(inv_gamma(5,75), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 40), class = b, coef = versionpics), 
+  prior(normal(0, 40), class = b, coef = cage_c), 
+  prior(inv_gamma(5,75), class = sd, coef = versionpics, group = Subject), 
+  prior(inv_gamma(5,85), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu))
+
+totPts_student_m2_prior <- 
+  brm(
+    totPts_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "totPts_student_m2_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(totPts_student_m2_prior, ndraws=100)
+
+
+################
+#Run model 2
+
+totPts_student_m2 <- 
+  brm(
+    totPts_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "totPts_student_m2",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check before continuing
+plot(totPts_student_m2)
+
+#Summarize model
+summary(totPts_student_m2)
+bayes_R2(totPts_student_m2)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(totPts_student_m2, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(totPts_student_m2, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(totPts_student_m2, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(totPts_student_m2, "versionpics > 0", group = "Subject", scope="coef") 
+
+##########
+#Posterior checks
+
+plot(conditional_effects(totPts_student_m2), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(totPts_student_m2, ndraws=100)
+pp_check(totPts_student_m2, type = "intervals_grouped", group = "version")
+
+#Draw from the posterior and plot
+Posterior_student_m2 <- as_draws_df(totPts_student_m2)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("totPtsm2intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (versionpics)') +
+  theme_classic()
+ggsave("totPtsm2betaversion.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("totPtsm2age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m2) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("totPtsm2sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("totPtsm2sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("totPtsm2cor.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("totPtsm2nu.png", width = 4, height = 4)
+
+
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(totPts_student_m2)[["Subject"]][,,"Intercept"]),
+  lines = coef(totPts_student_m2)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(totPts_student_m2)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  totPts = value
+)
+df <- accParsLong[, c("Subject", "version", "totPts")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    totPts = ifelse(version=="lines", mean(df$totPts[df$version=="lines"]), mean(df$totPts[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, totPts, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+# ###############
+# #Examine potential divergence issues -- no longer with new priors
+# pairs(totPts_student_m2$fit, pars = c('b_Intercept', 'b_versionpics', 'b_cage_c', 'sd_Subject__Intercept', 'sd_Subject__versionpics',  'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+# #check for strong linear associations to indicate where I might need to adjust my priors
+
+
+```
+
+## 1a: totPts w/ age*version interaction
+```{r}
+
+###########
+#setup
+test <- lmer(totPts ~ 1 + version + cage_c + cage_c:version + (1|Subject), data = accParsLong, REML = FALSE, control=lmerControl(optimizer = "Nelder_Mead"))
+summary(test)
+
+set.seed(5)
+
+totPts_f3 <- bf(totPts ~ 1 + version + cage_c + cage_c :version + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(totPts_f3, data = accParsLong, family = student)
+
+student_priors3 <- c(
+  prior(normal(100, 25), class = Intercept, lb = -384, ub = 384), 
+  prior(inv_gamma(5,75), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 40), class = b, coef = versionpics), 
+  prior(normal(0, 40), class = b, coef = versionpics:cage_c), 
+  prior(normal(0, 40), class = b, coef = cage_c), 
+  prior(inv_gamma(5,75), class = sd, coef = versionpics, group = Subject), 
+  prior(inv_gamma(5,85), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu))
+
+totPts_student_m3_prior <- 
+  brm(
+    totPts_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "totPts_student_m3_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(totPts_student_m3_prior, ndraws=100)
+
+
+################
+#Run model 3
+
+totPts_student_m3 <- 
+  brm(
+    totPts_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "totPts_student_m3",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check before continuing
+plot(totPts_student_m3)
+
+#Summarize model
+summary(totPts_student_m3)
+
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(totPts_student_m3, "versionpics > 0") 
+2 * log(18.9) #link below recs to take twice log
+#https://stats.stackexchange.com/questions/246208/reporting-bayes-factors
+
+#Is there support for domain-general learning performance?
+hypothesis(totPts_student_m3, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(totPts_student_m3, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(totPts_student_m3, "versionpics > 0", group = "Subject", scope="coef") 
+
+#hypothesis for simple slopes
+# a = version (version ref)
+# b = age
+# DV ~ a + b + a*b
+# then b is slope for lines
+# age + age:versionpics is the slope for pics
+#-0.16 + 0.26 = .10
+# age:versionpics is the difference of the slopes
+hypothesis(totPts_student_m3, c(agelines = "cage_c = 0", #slope for lines
+                             agepics = "cage_c + versionpics:cage_c = 0")) #slope for pics
+#so negative relation for age and beta in lines version, and weak evidence for positive relation in pics version. 
+
+#if age = 1.5, is there more support that the increase is greater than 0?
+hypothesis(totPts_student_m3, "cage_c + versionpics:cage_c > 0", parameters = c("cage_c" = 1.5))
+
+
+
+
+##########
+#Posterior checks
+
+plot(conditional_effects(totPts_student_m3), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(totPts_student_m3, ndraws=100)
+pp_check(totPts_student_m3, type = "intervals_grouped", group = "version")
+
+#Draw from the posterior and plot
+Posterior_student_m3 <- as_draws_df(totPts_student_m3)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m3) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("totPtsm3intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m3) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (versionpics)') +
+  theme_classic()
+ggsave("totPtsm3betaversion.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m3) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("totPtsm3age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m3) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("totPtsm3sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m3) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("totPtsm3sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m3) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("totPtsm3cor.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m3) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("totPtsm3nu.png", width = 4, height = 4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#2.22.23 testing quad relation
+totPts_f3.2 <- bf(totPts ~ 1 + version + cage_c + cage_c :version + I(cage_c^2) + I(cage_c^2):version +(1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(totPts_f3.2, data = accParsLong, family = student)
+
+student_priors3.2 <- c(
+  prior(normal(100, 25), class = Intercept, lb = -384, ub = 384), 
+  prior(inv_gamma(5,75), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 40), class = b, coef = versionpics), 
+  prior(normal(0, 40), class = b, coef = versionpics:cage_c), 
+  prior(normal(0, 40), class = b, coef = cage_c), 
+  prior(normal(0, 40), class = b, coef = Icage_cE2),
+  prior(normal(0, 40), class = b, coef = versionpics:Icage_cE2), 
+  prior(inv_gamma(5,75), class = sd, coef = versionpics, group = Subject), 
+  prior(inv_gamma(5,85), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu))
+
+totPts_student_m3.2_prior <- 
+  brm(
+    totPts_f3.2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3.2,
+    file = "totPts_student_m3.2_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(totPts_student_m3.2_prior, ndraws=100)
+
+
+################
+#Run model 3
+
+totPts_student_m3.2 <- 
+  brm(
+    totPts_f3.2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3.2,
+    file = "totPts_student_m3.2",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check before continuing
+plot(totPts_student_m3.2)
+
+#Summarize model
+summary(totPts_student_m3.2)
+
+plot(conditional_effects(totPts_student_m3.2), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+
+
+
+```
+
+## 1a: totPts model comparisons
+```{r}
+
+#Lower WAIC and lower LOOIC values within a series of nested models indicate better fit.
+
+waic(totPts_student_m1) #1027.2
+waic(totPts_student_m2) #1026.8
+waic(totPts_student_m3) #1025.7
+
+totPts_student_m1_loo <- loo(totPts_student_m1, moment_match = TRUE)#1041.6
+totPts_student_m2_loo <- loo(totPts_student_m2, moment_match = TRUE)#1040.6
+totPts_student_m3_loo <- loo(totPts_student_m3, moment_match = TRUE)#1039.9
+
+loo_compare(totPts_student_m1_loo,totPts_student_m2_loo,totPts_student_m3_loo)
+
+```
+
+## 1a: Plot the final totPts model
+```{r}
+
+#Extracted summary stats from totPts model 3
+summary(totPts_student_m3)
+
+means <- data.frame(version = c("lines", "pics"),
+                    mean = c(93.84, 100.26),
+                    ymin = c(86.65, 92.42), #diff (here add) between lower CI and ES of versionpics then subtract to the mean 
+                    ymax = c(100.99, 108.06)) #diff between upper CI and ES pof versionpics then add to the mean for pics
+#Needs subject to merge with raw data
+subjects <- data.frame(Subject = c("mean"))
+means <- cbind(means, subjects)
+
+#Make raw data plot for background
+p <- ggplot(data = accParsLong, aes(x = version, y = totPts, group = Subject, color = as.factor(Subject))) +
+  geom_violin(aes(x = version, y = totPts, group = version), fill = "gray", alpha = 0.5, linetype="blank") +
+  geom_point(alpha = 0.5, size = 3.5) +
+  geom_line(alpha = 0.5, size = 1) +
+  theme_classic() +
+  theme(legend.position="none") +
+  ylab ("Summed Total Points") +
+  xlab ("Version") +
+  scale_x_discrete(labels = c("Non-Emotional", "Socioemotional")) +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15)  
+  )
+  
+# Then, add the mean points and error bars to the scatterplot as additional layers
+totPtsplot <- p + geom_point(data = means, aes(x = version, y = mean, group = Subject), color = "black", size = 5) +
+  geom_line(data = means, aes(x = version, y = mean, group = Subject), color = "black", size =1.5 ) +
+  geom_errorbar(data = means, aes(x = version, y = mean, ymin = ymin, ymax = ymax), color = "black", width = 0.2) 
+
+#save
+ggsave("totPtsplot.png", width = 6, height = 6)
+
+
+
+
+#interaction effect
+
+# Generate predictions for all observations
+predictions <- predict(totPts_student_m3, newdata = accParsLong, allow_new_levels = TRUE)
+
+# Add the predicted values as a new column in the original dataset
+accParsLong$predicted_yield <- predictions
+colnames(accParsLong)
+accParsLong$yhat<-accParsLong$predicted_yield[,"Estimate"]
+
+ggplot(data = accParsLong, aes(x = cage, y = yhat, group_by(version), color = version)) +
+  geom_point(aes(y=totPts), size = 3.5, alpha= .5) + 
+  geom_smooth(aes(fill = version), method = "lm", size = 2) +
+  scale_color_manual(values=alpha(c("#009E73", "#0072B2"), .9), labels = c("Non-Emotional", "Socioemotional")) +
+  scale_fill_manual(values=alpha(c("#009E73", "#0072B2"), .7), labels = c("Non-Emotional", "Socioemotional")) +
+  ylab('Summed Total Points') +
+  xlab ('Age') +
+  theme_classic() +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)
+  )
+  ggsave("totPtsinteractionplot.png", width = 6, height = 5.5)
+
+  
+
+```
+
+## 1a: totPts effect sizes
+```{r}
+
+# Calculate Cohen's d for versionpics
+# extract the actual numeric values from the model output
+summary(totPts_student_m3)
+# versionpics coef
+version_diff <- 6.42
+# Compute pooled standard deviation of outcome
+pooled_sd <- sqrt((sd(accParsLong$totPts[accParsLong$version == "lines"])^2 + sd(accParsLong$totPts[accParsLong$version == "pics"])^2) / 2)
+# Compute Cohen's d
+cohens_d <- version_diff / pooled_sd
+cohens_d #0.2226986
+
+
+#Continuous effects of age
+summary(totPts_student_m3)
+
+3.81*sd(accParsLong$cage_c, na.rm=TRUE)/sd(accParsLong$totPts, na.rm=T)  #0.1202613
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# AIM 1B BRMS MODELS: COMPUTATIONAL MODEL OUTCOMES
+
+## 1b: Apun model w/ student dist
+```{r}
+
+##############
+#Setup
+#test <- lmer(Apun ~ 1 + version + (1|Subject), data = accParsLong, REML = FALSE, control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(test)
+
+#let's see which inv gamma for this is best that takes into account expectations that there will be individual differences but leaves room for uncertainty in how much; since learning rates are between 0-1 then we can assume it will fall somewhere in there; prob not super high given past literature showing some similarity in ranges of these in the 12-15 age range
+plotInvGamma(3,.6)
+plotInvGamma(3,.7)
+
+
+set.seed(5)
+Apun_f1 <- bf(Apun ~ 1 + version + (1+version|Subject))
+
+get_prior(Apun_f1, data = accParsLong, family = student)
+
+student_priors1 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+
+Apun_student_m1_prior <- 
+  brm(
+    Apun_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "Apun_student_m1_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Apun_student_m1_prior, ndraws=100)
+
+
+#############
+#Run model 1
+
+Apun_student_m1 <- 
+  brm(
+    Apun_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "Apun_student_m1",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(Apun_student_m1)
+
+#Summarize model
+summary(Apun_student_m1)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Apun_student_m1, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(Apun_student_m1, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Apun_student_m1, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Apun_student_m1, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(Apun_student_m1), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Apun_student_m1, ndraws=100)
+pp_check(Apun_student_m1, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m1_Apun <- as_draws_df(Apun_student_m1)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m1_Apun) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("Apunm1intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b:
+ggplot(Posterior_student_m1_Apun) +
+  geom_density(aes(prior_b), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+ggsave("Apunm1beta.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m1_Apun) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("Apunm1sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m1_Apun) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("Apunm1sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1_Apun) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("Apunm1corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m1_Apun) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("Apunm1nu.png", width = 4, height = 4)
+
+```
+
+## 1b: Apun model w/ age as covariate
+```{r}
+
+##############
+#Setup
+
+set.seed(5)
+Apun_f2 <- bf(Apun ~ 1 + version + cage_c + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(Apun_f2, data = accParsLong, family = student)
+
+student_priors2 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+
+Apun_student_m2_prior <- 
+  brm(
+    Apun_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "Apun_student_m2_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Apun_student_m2_prior, ndraws=100)
+
+
+###############
+#Run model 2
+
+Apun_student_m2 <- 
+  brm(
+    Apun_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "Apun_student_m2",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(Apun_student_m2)
+
+#Summarize model
+print(Apun_student_m2, digits=3)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Apun_student_m2, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(Apun_student_m2, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Apun_student_m2, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Apun_student_m2, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(Apun_student_m2), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Apun_student_m2, ndraws=100)
+pp_check(Apun_student_m2, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m2_Apun <- as_draws_df(Apun_student_m2)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m2_Apun) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("Apunm2intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m2_Apun) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+ggsave("Apunm2beta.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("Apunm2age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m2_Apun) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("Apunm2sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m2_Apun) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("Apunm2sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m2_Apun) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("Apunm2corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m2_Apun) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("Apunm2nu.png", width = 4, height = 4)
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(Apun_student_m2)[["Subject"]][,,"Intercept"]),
+  lines = coef(Apun_student_m2)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(Apun_student_m2)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  Apun = value
+)
+df <- accParsLong[, c("Subject", "version", "Apun")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    Apun = ifelse(version=="lines", mean(df$Apun[df$version=="lines"]), mean(df$Apun[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, Apun, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(Apun_student_m2$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+
+
+```
+
+## 1b: Apun model w/ age*version interaction
+```{r}
+
+##############
+#Setup
+
+set.seed(5)
+Apun_f3 <- bf(Apun ~ 1 + version + cage_c + cage_c:version + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(Apun_f3, data = accParsLong, family = student)
+
+student_priors3 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+Apun_student_m3_prior <- 
+  brm(
+    Apun_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "Apun_student_m3_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Apun_student_m3_prior, ndraws=100)
+
+
+###############
+#Run model 3
+
+Apun_student_m3 <- 
+  brm(
+    Apun_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "Apun_student_m3",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(Apun_student_m3)
+
+#Summarize model
+print(Apun_student_m3, digits=3)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Apun_student_m3, "versionpics > 0") 
+2 * log(1199) #link below recs to take twice log
+#https://stats.stackexchange.com/questions/246208/reporting-bayes-factors
+
+#Is there support for domain-general learning performance?
+hypothesis(Apun_student_m3, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Apun_student_m3, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Apun_student_m3, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+
+#hypothesis for simple slopes
+# a = version (version ref)
+# b = age
+# DV ~ a + b + a*b
+# then b is slope for lines
+# age + age:versionpics is the slope for pics
+#-0.16 + 0.26 = .10
+# age:versionpics is the difference of the slopes
+hypothesis(Apun_student_m3, c(agelines = "cage_c = 0", #slope for lines
+                             agepics = "cage_c + versionpics:cage_c = 0")) #slope for pics
+#so negative relation for age and beta in lines version, and weak evidence for positive relation in pics version. 
+
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(Apun_student_m3), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Apun_student_m3, ndraws=100)
+pp_check(Apun_student_m3, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m3_Apun <- as_draws_df(Apun_student_m3)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("Apunm3intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b(versionpics)') +
+  theme_classic()
+ggsave("Apunm3Apun.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("Apunm3age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("Apunm3sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("Apunm3sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("Apunm3corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m3_Apun) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("Apunm3nu.png", width = 4, height = 4)
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(Apun_student_m3)[["Subject"]][,,"Intercept"]),
+  lines = coef(Apun_student_m3)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(Apun_student_m3)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  Apun = value
+)
+df <- accParsLong[, c("Subject", "version", "Apun")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    Apun = ifelse(version=="lines", mean(df$Apun[df$version=="lines"]), mean(df$Apun[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, Apun, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(Apun_student_m3$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+
+```
+
+## 1b: Apun model comparisons
+```{r}
+
+#Lower WAIC and lower LOOIC values within a series of nested models indicate better fit.
+
+waic(Apun_student_m1) #-34.5
+waic(Apun_student_m2) #-34.6
+waic(Apun_student_m3) #-35.5
+
+Apun_student_m1_loo <- loo(Apun_student_m1, moment_match = TRUE) #-17.3
+Apun_student_m2_loo <- loo(Apun_student_m2, moment_match = TRUE)#-17.2
+Apun_student_m3_loo <- loo(Apun_student_m3, moment_match = TRUE)#-18.1
+
+bayes_R2(Apun_student_m1) #0.5937196
+bayes_R2(Apun_student_m2) #0.6014914
+bayes_R2(Apun_student_m3) #0.6133934
+
+```
+
+## 1b: Plot the final Apun model
+```{r}
+#Extracted summary stats from totPts model 3
+print(Apun_student_m3, digits=3)
+
+means <- data.frame(version = c("lines", "pics"),
+                    mean = c(.42, .53),
+                    ymin = c(.36, .46), 
+                    ymax = c(.49, .60)) 
+#Needs subject to merge with raw data
+subjects <- data.frame(Subject = c("mean"))
+means <- cbind(means, subjects)
+
+#Make raw data plot for background
+p <- ggplot(data = accParsLong, aes(x = version, y = Apun, group = Subject, color = as.factor(Subject))) +
+  geom_violin(aes(x = version, y = Apun, group = version), fill = "gray", alpha = 0.5, linetype="blank") +
+  geom_point(alpha = 0.5, size = 3.5) +
+  geom_line(alpha = 0.5, size = 1) +
+  theme_classic() +
+  theme(legend.position="none") +
+  ylab ("Punishment Learning Rate") +
+  xlab ("Version") +
+  scale_x_discrete(labels = c("Non-Emotional", "Socioemotional")) +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15)  
+  )
+  
+# Then, add the mean points and error bars to the scatterplot as additional layers
+Apunplot <- p + geom_point(data = means, aes(x = version, y = mean, group = Subject), color = "black", size = 5) +
+  geom_line(data = means, aes(x = version, y = mean, group = Subject), color = "black", size =1.5 ) +
+  geom_errorbar(data = means, aes(x = version, y = mean, ymin = ymin, ymax = ymax), color = "black", width = 0.2) 
+
+#save
+ggsave("Apunplot.png", width = 6, height = 6)
+
+
+
+#interaction effect
+
+# Generate predictions for all observations
+predictions <- predict(Apun_student_m3, newdata = accParsLong, allow_new_levels = TRUE)
+
+# Add the predicted values as a new column in the original dataset
+accParsLong$predicted_yield <- predictions
+colnames(accParsLong)
+accParsLong$yhat<-accParsLong$predicted_yield[,"Estimate"]
+
+ggplot(data = accParsLong, aes(x = cage, y = yhat, group_by(version), color = version)) +
+  geom_point(aes(y=Apun), size = 3.5, alpha= .5) + 
+  geom_smooth(aes(fill = version), method = "lm", size = 2) +
+  scale_color_manual(values=alpha(c("#009E73", "#0072B2"), .9), labels = c("Non-Emotional", "Socioemotional")) +
+  scale_fill_manual(values=alpha(c("#009E73", "#0072B2"), .7), labels = c("Non-Emotional", "Socioemotional")) +
+  ylab('Punishment Learning Rate') +
+  xlab ('Age') +
+  theme_classic() +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)
+  )
+  ggsave("Apuninteractionplot.png", width = 6, height = 5.5)
+
+
+```
+
+## 1b: Apun effect sizes
+```{r}
+
+print(Apun_student_m3, digits=3)
+
+# versionpics coef
+version_diff <- .11
+# Compute pooled standard deviation of outcome
+pooled_sd <- sqrt((sd(accParsLong$Apun[accParsLong$version == "lines"])^2 + sd(accParsLong$Apun[accParsLong$version == "pics"])^2) / 2)
+# Compute Cohen's d
+cohens_d <- version_diff / pooled_sd
+cohens_d #0.4542572
+
+
+#Continuous effects of age
+print(Apun_student_m3, digits=3)
+
+0.03*sd(accParsLong$cage_c, na.rm=TRUE)/sd(accParsLong$Apun, na.rm=T)  #0.1104341
+
+```
+
+
+## 1b: Arew model w/ student dist
+```{r}
+
+#############
+#Setup
+
+set.seed(5)
+Arew_f1 <- bf(Arew ~ 1 + version + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(Arew_f1, data = accParsLong, family = student)
+
+student_priors1 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  #prior(normal(0, 1), class = b, coef = cage_c), 
+  #prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+
+Arew_student_m1_prior <- 
+  brm(
+    Arew_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student, 
+    prior = student_priors1,
+    file = "Arew_student_m1_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Arew_student_m1_prior, ndraws=100)
+
+
+###############
+#Run model 1
+
+Arew_student_m1 <- 
+  brm(
+    Arew_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "Arew_student_m1",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(Arew_student_m1)
+
+#Summarize model
+summary(Arew_student_m1)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Arew_student_m1, "versionpics > 0") 
+2 * log(412.79)
+
+#Is there support for domain-general learning performance?
+hypothesis(Arew_student_m1, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Arew_student_m1, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Arew_student_m1, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+###########
+#Posterior checks
+
+plot(conditional_effects(Arew_student_m1), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Arew_student_m1, ndraws=100)
+pp_check(Arew_student_m1, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m1_Arew <- as_draws_df(Arew_student_m1)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m1_Arew) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for b:
+ggplot(Posterior_student_m1_Arew) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (versionpics)') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m1_Arew) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m1_Arew) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1_Arew) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1_Arew) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+
+```
+
+
+## 1b: Arew model w/ age as covariate
+```{r}
+
+##########
+#Setup
+
+set.seed(5)
+Arew_f2 <- bf(Arew ~ 1 + version + cage_c + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(Arew_f2, data = accParsLong, family = student)
+
+student_priors2 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  #prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+Arew_student_m2_prior <- 
+  brm(
+    Arew_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "Arew_student_m2_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Arew_student_m2_prior, ndraws=100)
+
+
+###############
+#Run model 2
+
+Arew_student_m2 <- 
+  brm(
+    Arew_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "Arew_student_m2",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(Arew_student_m2)
+
+#Summarize model
+summary(Arew_student_m2)
+
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Arew_student_m2, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(Arew_student_m2, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Arew_student_m2, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Arew_student_m2, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(Arew_student_m2), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Arew_student_m2, ndraws=100)
+pp_check(Arew_student_m2, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m2_Arew <- as_draws_df(Arew_student_m2)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m2_Arew) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("Arewm2intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m2_Arew) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+ggsave("Arewm2beta.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("Arewm2age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m2_Arew) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("Arewm2sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m2_Arew) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("Arewm2sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m2_Arew) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("Arewm2corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m2_Arew) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("Arewm2nu.png", width = 4, height = 4)
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(Arew_student_m2)[["Subject"]][,,"Intercept"]),
+  lines = coef(Arew_student_m2)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(Arew_student_m2)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  Arew = value
+)
+df <- accParsLong[, c("Subject", "version", "Arew")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    Arew = ifelse(version=="lines", mean(df$Arew[df$version=="lines"]), mean(df$Arew[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, Arew, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(Arew_student_m2$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+
+```
+
+The association between age and reward learning rate look quadratic, so going to test that here.
+
+## 1b: Arew model w/ quadratic age as covariate
+```{r}
+
+############
+#Setup
+
+set.seed(5)
+Arew_f3 <- bf(Arew ~ 1 + version + cage_c + I(cage_c^2) + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(Arew_f3, data = accParsLong, family = student)
+
+student_priors3 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  prior(normal(0, 1), class = b, coef = Icage_cE2), 
+  #prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+Arew_student_m3_prior <- 
+  brm(
+    Arew_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "Arew_student_m3_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Arew_student_m3_prior, ndraws=100)
+
+
+###############
+#Run model 3
+
+Arew_student_m3 <- 
+  brm(
+    Arew_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "Arew_student_m3",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+#check convergence
+plot(Arew_student_m3)
+
+#Summarize model 3
+summary(Arew_student_m3)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Arew_student_m3, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(Arew_student_m3, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Arew_student_m3, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Arew_student_m3, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(Arew_student_m3), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Arew_student_m3, ndraws=100)
+pp_check(Arew_student_m3, type = "intervals_grouped", group = "version")
+
+```
+
+## 1b: Arew model comparisons
+```{r}
+
+#waic
+waic(Arew_student_m1) #-67.7
+waic(Arew_student_m2) #-67.7
+waic(Arew_student_m3) #-67.5
+
+
+#Check to see if first model better than age model
+Arew_student_m1_loo <- loo(Arew_student_m1, moment_match = TRUE) #-58.5
+Arew_student_m2_loo <- loo(Arew_student_m2, moment_match = TRUE) #-58.7
+Arew_student_m3_loo <- loo(Arew_student_m3, moment_match = TRUE) #-57.4
+
+bayes_R2(Arew_student_m1) #0.5014664
+bayes_R2(Arew_student_m2) #0.5042525
+bayes_R2(Arew_student_m3) #0.5125868
+
+```
+
+Linear but not quadratic did not really improve model fit. Going to fit linear age w/ version interaction now and compare again.
+
+## 1b: Arew model w/ age * version interaction
+```{r}
+
+############
+#Setup
+
+set.seed(5)
+Arew_f4 <- bf(Arew ~ 1 + version + cage_c + cage_c:version + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(Arew_f4, data = accParsLong, family = student)
+
+student_priors4 <- c(
+  prior(normal(.5, .5), class = Intercept, lb=0, ub=1), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+Arew_student_m4_prior <- 
+  brm(
+    Arew_f4,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors4,
+    file = "Arew_student_m4_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(Arew_student_m4_prior, ndraws=100)
+
+
+###############
+#Run model 4
+
+Arew_student_m4 <- 
+  brm(
+    Arew_f4,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors4,
+    file = "Arew_student_m4",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+#check convergence
+plot(Arew_student_m4)
+
+#Summarize model 4
+summary(Arew_student_m4)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(Arew_student_m4, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(Arew_student_m4, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(Arew_student_m4, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(Arew_student_m4, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(Arew_student_m4), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(Arew_student_m4, ndraws=100)
+pp_check(Arew_student_m4, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m4_Arew <- as_draws_df(Arew_student_m4)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("Arewm4intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+ggsave("Arewm4Arew.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("Arewm4age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("Arewm4sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("Arewm4sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("Arewm4corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m4_Arew) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("Arewm4nu.png", width = 4, height = 4)
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(Arew_student_m4)[["Subject"]][,,"Intercept"]),
+  lines = coef(Arew_student_m4)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(Arew_student_m4)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  Arew = value
+)
+df <- accParsLong[, c("Subject", "version", "Arew")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    Arew = ifelse(version=="lines", mean(df$Arew[df$version=="lines"]), mean(df$Arew[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, Arew, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(Arew_student_m4$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+
+```
+
+## 1b: Arew comparison 2
+```{r}
+
+#waic
+waic(Arew_student_m1) #-67.7
+waic(Arew_student_m2) #-67.7
+waic(Arew_student_m4) #-68.2
+
+#Check to see if first model better than age model
+Arew_student_m1_loo <- loo(Arew_student_m1, moment_match = TRUE) #-58.5
+Arew_student_m2_loo <- loo(Arew_student_m2, moment_match = TRUE) #-58.7
+Arew_student_m4_loo <- loo(Arew_student_m4, moment_match = TRUE) #-57.9 
+
+bayes_R2(Arew_student_m2) #0.5042525
+bayes_R2(Arew_student_m4) #0.515692
+
+```
+
+None of the models with age seem to show a clear improvement, so going with simpler model (model 1)
+
+## 1b: Plot final Arew model
+```{r}
+#Extracted summary stats from Arew model 1
+summary(Arew_student_m1)
+
+means <- data.frame(version = c("lines", "pics"),
+                    mean = c(0.63, 0.73),
+                    ymin = c(0.57, 0.66), 
+                    ymax = c(0.69, 0.79))
+#Needs subject to merge with raw data
+subjects <- data.frame(Subject = c("mean"))
+means <- cbind(means, subjects)
+
+#Make raw data plot for background
+p <- ggplot(data = accParsLong, aes(x = version, y = Arew, group = Subject, color = as.factor(Subject))) +
+  geom_violin(aes(x = version, y = Arew, group = version), fill = "gray", alpha = 0.5, linetype="blank") +
+  geom_point(alpha = 0.5, size = 3.5) +
+  geom_line(alpha = 0.5, size = 1) +
+  theme_classic() +
+  theme(legend.position="none") +
+  ylab ("Reward Learning Rate") +
+  xlab ("Version") +
+  scale_x_discrete(labels = c("Non-Emotional", "Socioemotional")) +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15)  
+  )
+  
+# Then, add the mean points and error bars to the scatterplot as additional layers
+Arewplot <- p + geom_point(data = means, aes(x = version, y = mean, group = Subject), color = "black", size = 5) +
+  geom_line(data = means, aes(x = version, y = mean, group = Subject), color = "black", size =1.5 ) +
+  geom_errorbar(data = means, aes(x = version, y = mean, ymin = ymin, ymax = ymax), color = "black", width = 0.2) 
+
+#save
+ggsave("Arewplot.png", width = 6, height = 6)
+
+```
+
+## 1b: Arew effect sizes
+```{r}
+
+summary(Arew_student_m1)
+# versionpics coef
+version_diff <- .10
+# Compute pooled standard deviation of outcome
+pooled_sd <- sqrt((sd(accParsLong$Arew[accParsLong$version == "lines"])^2 + sd(accParsLong$Arew[accParsLong$version == "pics"])^2) / 2)
+# Compute Cohen's d
+cohens_d <- version_diff / pooled_sd
+cohens_d #0.5212715
+
+
+#Continuous effects
+# print(Arew_student_m2, digits=3)
+# 
+# 0.034*sd(accParsLong$cage_c, na.rm=TRUE)/sd(accparsdfalong$Apun, na.rm=T)  #0.1251587
+
+```
+
+## 1b: beta model w/ student dist
+```{r}
+
+##########
+#Setup
+
+#test <- lmer(beta ~ 1 + version + (1|Subject), data = accParsLong, REML = FALSE, control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(test)
+
+#let's see which inv gamma for this is best that takes into account expectations that there will be individual differences but leaves room for uncertainty in how much; lets try with same priors as learning rates since I expect slightly less variation given prior lit showing more similarities for inverse temp by age
+plotInvGamma(3,.6)
+plotInvGamma(3,.7)
+
+
+
+set.seed(5)
+beta_f1 <- bf(beta ~ 1 + version + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(beta_f1, data = accParsLong, family = student)
+
+student_priors1 <- c(
+  prior(normal(2, 2), class = Intercept, lb=0, ub=6), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  #prior(normal(0, 1), class = b, coef = cage_c), 
+  #prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+beta_student_m1_prior <- 
+  brm(
+    beta_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "beta_student_m1_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(beta_student_m1_prior, ndraws=100)
+
+
+#################
+#Run model 1
+beta_student_m1 <- 
+  brm(
+    beta_f1,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors1,
+    file = "beta_student_m1",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(beta_student_m1)
+
+#Summarize model 1
+summary(beta_student_m1)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(beta_student_m1, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(beta_student_m1, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(beta_student_m1, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(beta_student_m1, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+##################
+#Posterior checks
+
+plot(conditional_effects(beta_student_m1), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(beta_student_m1, ndraws=100)
+pp_check(beta_student_m1, type = "intervals_grouped", group = "version")
+
+#Draw from posterior
+Posterior_student_m1_beta <- as_draws_df(beta_student_m1)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m1_beta) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for b:
+ggplot(Posterior_student_m1_beta) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m1_beta) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m1_beta) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1_beta) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m1_beta) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+
+```
+
+## 1b: beta model w/ age as covariate
+```{r}
+
+#############
+#Setup
+
+set.seed(5)
+beta_f2 <- bf(beta ~ 1 + version + cage_c + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(beta_f2, data = accParsLong, family = student)
+
+student_priors2 <- c(
+  prior(normal(2, 2), class = Intercept, lb=0, ub=6), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  #prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+beta_student_m2_prior <- 
+  brm(
+    beta_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "beta_student_m2_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(beta_student_m2_prior, ndraws=100)
+
+#############
+#Run model 2
+
+beta_student_m2 <- 
+  brm(
+    beta_f2,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors2,
+    file = "beta_student_m2",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(beta_student_m2)
+
+#Summarize model 2
+summary(beta_student_m2)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(beta_student_m2, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(beta_student_m2, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(beta_student_m2, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(beta_student_m2, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+
+
+
+################
+#Posterior checks
+
+plot(conditional_effects(beta_student_m2), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(beta_student_m2, ndraws=100)
+pp_check(beta_student_m2, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m2_beta <- as_draws_df(beta_student_m2)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m2_beta) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("betam2intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m2_beta) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  theme_classic()
+ggsave("betam2beta.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m2) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("betam2age.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m2_beta) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("betam2sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m2_beta) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("betam2sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m2_beta) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("betam2corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m2_beta) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("betam2nu.png", width = 4, height = 4)
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(beta_student_m2)[["Subject"]][,,"Intercept"]),
+  lines = coef(beta_student_m2)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(beta_student_m2)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  beta = value
+)
+df <- accParsLong[, c("Subject", "version", "beta")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    beta = ifelse(version=="lines", mean(df$beta[df$version=="lines"]), mean(df$beta[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, beta, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(beta_student_m2$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+```
+
+## 1b: beta model w/ age*verison interaction
+```{r}
+
+#############
+#Setup
+
+set.seed(5)
+beta_f3 <- bf(beta ~ 1 + version + cage_c + cage_c:version + (1+version|Subject))
+
+#Setting priors in a principled way
+get_prior(beta_f3, data = accParsLong, family = student)
+
+student_priors3 <- c(
+  prior(normal(2, 2), class = Intercept, lb=0, ub=6), 
+  prior(inv_gamma(3,.6), class = sd, coef = Intercept, group = Subject),
+  prior(normal(0, 1), class = b, coef = versionpics), 
+  prior(normal(0, 1), class = b, coef = cage_c), 
+  prior(normal(0, 1), class = b, coef = versionpics:cage_c), 
+  prior(inv_gamma(3,.6), class = sd, coef = versionpics, group = Subject),
+  prior(inv_gamma(3,.7), class = sigma),
+  prior(lkj(2), class = cor),
+  prior(gamma(2,.1), class = nu)) 
+
+
+beta_student_m3_prior <- 
+  brm(
+    beta_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "beta_student_m3_prior",
+    #refit = "on_change",
+    sample_prior = "only", #only samples from the priors
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+#this samples from the prior dist (joint parameter space) to see the full uncertainty of our predictions
+#darker line helps to establish the scale of the outcomes
+#moves from possible space of parameter values -- uses that space to optimize 
+pp_check(beta_student_m3_prior, ndraws=100)
+
+#############
+#Run model 3
+
+beta_student_m3 <- 
+  brm(
+    beta_f3,
+    data = accParsLong,
+    save_pars = save_pars(all = TRUE),
+    family = student,
+    prior = student_priors3,
+    file = "beta_student_m3",
+    #refit = "on_change",
+    sample_prior = T,
+    iter = 4000, 
+    warmup = 1000,
+    cores = 4,
+    chains = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    control = list(
+      adapt_delta = 0.999,
+      max_treedepth = 20))
+
+#Quick convergence check
+plot(beta_student_m3)
+
+#Summarize model 3
+summary(beta_student_m3)
+
+#Test my hypothesis that youth will perform slightly better in socioemo:
+hypothesis(beta_student_m3, "versionpics > 0") 
+
+#Is there support for domain-general learning performance?
+hypothesis(beta_student_m3, "versionpics = 0")
+
+#Is there support for the hypothesis that youth perform better on lines?
+hypothesis(beta_student_m3, "versionpics < 0")
+
+#for individual subjects:
+hypothesis(beta_student_m3, "versionpics > 0", group = "Subject", scope="coef") #56/56 showed greater performance on pics
+
+#hypothesis for simple slopes
+# a = version (version ref)
+# b = age
+# DV ~ a + b + a*b
+# then b is slope for lines
+# age + age:versionpics is the slope for pics
+#-0.16 + 0.26 = .10
+# age:versionpics is the difference of the slopes
+hypothesis(beta_student_m3, c(agelines = "cage_c = 0", #slope for lines
+                             agepics = "cage_c + versionpics:cage_c = 0")) #slope for pics
+#so negative relation for age and beta in lines version, and weak evidence for positive relation in pics version. 
+
+#if age = 1.5, is there more support that the increase is greater than 0?
+hypothesis(beta_student_m3, "cage_c + versionpics:cage_c > 0", parameters = c("cage_c" = 1.5))
+
+################
+#Posterior checks
+
+plot(conditional_effects(beta_student_m3), 
+     points = T, 
+     theme = theme_minimal(), 
+     palette = "magma") 
+
+#pp check          
+pp_check(beta_student_m3, ndraws=100)
+pp_check(beta_student_m3, type = "intervals_grouped", group = "version")
+
+#Sample from posterior
+Posterior_student_m3_beta <- as_draws_df(beta_student_m3)
+
+#Plot the prior-posterior update plot for the intercept:
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  theme_classic()
+ggsave("betam3intercept.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for b version:
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(prior_b_versionpics), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (versionpics)') +
+  theme_classic()
+ggsave("betam3beta.png", width = 4, height = 4)
+
+#plot for age
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(prior_b_cage_c), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_cage_c), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b (age)') +
+  theme_classic()
+ggsave("betam3age.png", width = 4, height = 4)
+
+
+#Plot the prior-posterior update plot for sd of intercepts and slopes:
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(sd_Subject__Intercept), fill="#FC4E07", color="black",alpha=0.3) + 
+  geom_density(aes(sd_Subject__versionpics), fill="#228B22", color="black",alpha=0.4) + 
+  geom_density(aes(prior_sd_Subject__versionpics), fill="steelblue", color="black",alpha=0.6) +
+  xlab('sd') +
+  theme_classic()
+ggsave("betam3sd.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for sigma:
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(prior_sigma), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sigma), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('sigma') +
+  theme_classic()
+ggsave("betam3sigma.png", width = 4, height = 4)
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(prior_cor_Subject), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Subject__Intercept__versionpics), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('cor') +
+  theme_classic()
+ggsave("betam3corr.png", width = 4, height = 4)
+
+#nu
+ggplot(Posterior_student_m3_beta) +
+  geom_density(aes(prior_nu), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(nu), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('nu') +
+  theme_classic()
+ggsave("betam3nu.png", width = 4, height = 4)
+
+
+
+
+###########
+#Partial pooling
+#Now we examine what the partial pooling is doing and if we should buy into it; need to examine how the ppl who did better on lines were shrunk. See which ways our model is shaping the data
+#create panel plot; one per participant
+#red line is the raw spaghetti plot 
+#blue is fixed ef model that pools across indiviuals without considering any within person diff
+#green is what multilevel model is doing
+
+plot_df <- tibble(
+  Subject = rownames(coef(beta_student_m3)[["Subject"]][,,"Intercept"]),
+  lines = coef(beta_student_m3)[["Subject"]][,,"Intercept"][,1],
+  pics = lines + coef(beta_student_m3)[["Subject"]][,,"versionpics"][,1],
+  Type = "partial pooling"
+) %>% pivot_longer(lines:pics) %>% dplyr::rename(
+  version = name,
+  beta = value
+)
+df <- accParsLong[, c("Subject", "version", "beta")] %>%
+  mutate(Type = "no pooling")
+pool_df <- df[,c("Subject", "version")] %>%
+  mutate(
+    beta = ifelse(version=="lines", mean(df$beta[df$version=="lines"]), mean(df$beta[df$version=="pics"])),
+    Type = "total pooling"
+  )
+
+plot_df <- rbind(plot_df,df) 
+
+plot_df <- rbind(plot_df,pool_df) 
+
+plot_df <- plot_df %>%
+  mutate(version=as.numeric(as.factor(version)))
+
+ggplot(plot_df, aes(version, beta, color = Type)) + 
+  geom_path(size = 1) + 
+  geom_point() + 
+  facet_wrap(.~Subject) +
+  scale_x_continuous(breaks=seq(1, 2, 1)) +
+  theme_bw() +
+  theme(axis.title.x = element_text(size = 13),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", size=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 10, color = "black"))
+
+
+
+###############
+#Examine potential divergence issues
+pairs(beta_student_m3$fit, pars = c('b_Intercept', 'b_versionpics', 'sd_Subject__Intercept', 'sd_Subject__versionpics', 'cor_Subject__Intercept__versionpics', 'sigma', 'Intercept'))
+#check for strong linear associations to indicate where I might need to adjust my priors
+
+```
+
+## 1b: beta model comparisons
+```{r}
+
+#waic
+waic(beta_student_m1) #179.3
+waic(beta_student_m2) #180.5
+waic(beta_student_m3) #167.8
+
+#Check to see if first model better than age model
+beta_student_m1_loo <- loo(beta_student_m1, moment_match = TRUE) #186.0
+beta_student_m2_loo <- loo(beta_student_m2, moment_match = TRUE) #187.1
+beta_student_m3_loo <- loo(beta_student_m3, moment_match = TRUE) #176.8
+
+
+bayes_R2(beta_student_m1) #0.3841477
+bayes_R2(beta_student_m2) #0.3989589
+bayes_R2(beta_student_m3) #0.489396
+
+```
+
+
+## 1b: Plot final beta model 
+```{r}
+
+# # Extract posterior samples of the beta and the sigma parameters
+# post_sam <- as.data.frame(beta_student_m3, pars = c("b_versionpics", "sigma"))
+# # Compute Cohen's d for each iteration
+# post_sam$cohen_d <- post_sam$b_versionpics / post_sam$sigma
+# # Posterior density
+# bayesplot::mcmc_areas(post_sam, pars = "cohen_d", 
+#                       prob = .90)
+# 
+# #ROPE: https://psyc-bayes-notes.netlify.app/group-comparisons.html#between-subject-comparisons
+# HPDinterval(as.mcmc(post_sam))
+# beta_sam <- as.matrix(beta_student_m3, variable = "b_versionpics")
+# # Probability in the Region of Practical Equivalence ROPE
+# mean(beta_sam < .10 & beta_sam > .1)
+
+#Plot now with simple slopes, first save out conditional effects
+gg <- plot(conditional_effects(beta_student_m3),
+     palette = "virdis",
+     points = T, 
+     theme = theme_classic())
+
+p1 <- gg[[1]]
+p2 <- gg[[2]]
+p3 <- gg[[3]]
+
+p3 <- p3 + guides(fill = "none")
+
+gg <- p3 + 
+  labs(x = "Age", y = "Inverse Temperature", color = "Version") +   scale_x_continuous(breaks = c(-1, 0, 1, 2), labels = c("12","13", "14", "15")) +
+  scale_color_discrete(name = "Version", labels = c("Non-Emotional", "Socioemotional")) 
+
+gg <- gg + theme(axis.title.x = element_text(size = 15), axis.title.y = element_text(size = 15))
+
+
+####detailed plots
+
+
+# Generate predictions for all observations
+predictions <- predict(beta_student_m3, newdata = accParsLong, allow_new_levels = TRUE)
+
+# Add the predicted values as a new column in the original dataset
+accParsLong$predicted_yield <- predictions
+colnames(accParsLong)
+accParsLong$yhat<-accParsLong$predicted_yield[,"Estimate"]
+
+ggplot(data = accParsLong, aes(x = cage, y = yhat, group_by(version), color = version)) +
+  geom_point(aes(y=beta), size = 3.5, alpha= .5) + 
+  geom_smooth(aes(fill = version), method = "lm", size = 2) +
+  scale_color_manual(values=alpha(c("#009E73", "#0072B2"), .9), labels = c("Non-Emotional", "Socioemotional")) +
+  scale_fill_manual(values=alpha(c("#009E73", "#0072B2"), .7), labels = c("Non-Emotional", "Socioemotional")) +
+  ylab('Inverse Temperature') +
+  #ylab(expression(~ beta)) +
+  xlab ('Age') +
+  theme_classic() +
+  theme(
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.x = element_text(size = 15),
+    axis.text.y = element_text(size = 15)
+  )
+  ggsave("betaplot.png", width = 6, height = 5.5)
+
+  
+  
+
+                                                          
+#plot without points
+betaint <- interact_plot(beta_student_m3, pred = cage_c, modx = version, interval = T, legend.main = "Version", colors = "Paired", line.thickness = 2)  +
+  theme_classic() + 
+  scale_x_continuous(breaks = c(-1, 0, 1, 2), labels = c("12","13", "14", "15")) +
+  theme(axis.title.x = element_text(size=20),
+        axis.title.y = element_text(size=20),
+        axis.text.x = element_text (size=15),
+        axis.text.y = element_text (size=15),
+        legend.text = element_text (size=15),
+        legend.title = element_text (size=17),
+        legend.key.width = unit(3.5, "line")) +
+  ylab("Inverse Temperature") +
+  xlab("Age") 
+#save
+ggsave("betaint.png", width = 4, height = 4)
+
+
+```
+
+## 1b: beta effect sizes
+```{r}
+
+summary(beta_student_m3)
+# versionpics coef
+version_diff <- 0.01 
+# Compute pooled standard deviation of outcome
+pooled_sd <- sqrt((sd(accParsLong$beta[accParsLong$version == "lines"])^2 + sd(accParsLong$beta[accParsLong$version == "pics"])^2) / 2)
+# Compute Cohen's d
+cohens_d <- version_diff / pooled_sd
+cohens_d #0.01741989
+
+
+```

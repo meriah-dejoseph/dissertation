@@ -1,0 +1,43 @@
+---
+title: "00_physio data cleaning"
+author: "Meriah DeJoseph"
+date: '2022-12-27'
+output: html_document
+---
+
+## About
+This file cleans and merges LEAP IBI data in prep for aim 2 analyses
+
+## Libraries
+```{r, warning=FALSE, echo=TRUE, include=TRUE, message=FALSE}
+
+library('dplyr')
+library('tidyr')
+library('readr')
+library('knitr')
+library('vioplot')
+library('patchwork')
+library('RColorBrewer')
+library('stats')
+library('ggplot2')
+library('ggmap')
+library('AER')
+library('glmnet')
+library('igraph')
+library('xtable')
+library('corrplot')
+library('ggdensity')
+library('ggpubr')
+
+```
+
+## Load data
+```{r}
+
+#set wd
+setwd("~/Library/CloudStorage/Box-Box/BSL General/Projects/LEAP/3_DATA MERGING & CLEANING/Physio merging and cleaning")
+
+#load data
+
+```
+
